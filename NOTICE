@@ -1,0 +1,10 @@
+codex-opencode-adapter
+
+This project contains protocol-conversion logic independently implemented in Python.
+Parts of the conversion design are informed by cc-switch:
+https://github.com/farion1231/cc-switch
+
+cc-switch is licensed under the MIT License.
+Copyright (c) 2025 Jason Young
+
+No Rust source files from cc-switch are vendored directly in this repository.
