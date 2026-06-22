@@ -6,3 +6,5 @@ __pycache__/
 *.sqlite3
 *.log
 .env
+target/
+Cargo.lock

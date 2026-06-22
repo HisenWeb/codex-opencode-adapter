@@ -1,5 +1,6 @@
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::Stream;
+use futures::StreamExt;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use serde_json::Value;
 use std::time::Duration;
