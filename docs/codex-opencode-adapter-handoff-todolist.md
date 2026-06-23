@@ -1,34 +1,34 @@
-# codex-opencode-adapter P0-1 功能移植交接与对齐 TODO v5
+# codex-opencode-adapter 本地 Claude Code 接手 TODO v6
 
 > 用途：给新窗口 / 新执行上下文接手。  
 > 核心原则：**新窗口先对齐，不要马上执行。**  
-> 状态：P0-1 代码已初步实现；用户本地执行 `cargo test` 通过；**尚未做 OpenCode Go 实测**。
+> 状态：P0-1 远程已初步实现，用户反馈本地 `cargo test` 通过；本地 Claude Code 尚未完成对齐/复核；**所有 checklist 默认未勾，必须由本地 Claude Code 亲自阅读代码、运行验证后再勾。**
 
 ---
 
-## 0. 新窗口接手规则
+## 0. 本地 Claude Code 接手规则
 
-新窗口收到本文档后，第一步不是写代码，而是先和用户对齐。
+本地 Claude Code 收到本文档后，第一步不是写代码，而是先对齐、读本地代码、确认本地工作区状态。本文档中的历史记录只说明曾经发生过什么，不等于当前 agent 已完成。
 
 ### 必须先做
 
-- [x] 复述项目目标
-- [x] 复述执行策略
-- [x] 复述本轮只做 P0-1
-- [x] 说明准备修改哪些文件
-- [x] 说明不会修改哪些文件
-- [x] 说明会先复核哪些源码
-- [x] 说明可能的风险点
-- [x] 等用户明确说“开始实现 / 开始改 / 执行 P0-1”后，再写代码
+- [ ] 复述项目目标
+- [ ] 复述执行策略
+- [ ] 复述本轮只做 P0-1
+- [ ] 说明准备修改哪些文件
+- [ ] 说明不会修改哪些文件
+- [ ] 说明会先复核哪些源码
+- [ ] 说明可能的风险点
+- [ ] 等用户明确说“开始实现 / 开始改 / 执行 P0-1”后，再写代码
 
 ### 明确禁止
 
-- [x] 不要一上来就改代码
-- [x] 不要一上来就重构
-- [x] 不要一上来就跑大范围改动
-- [x] 不要自动扩大到 P0-3 / P1 / P2
-- [x] 不要把 cc-switch 整套架构搬过来
-- [x] 不要把本文档里的背景判断直接当成已完成代码项
+- [ ] 不要一上来就改代码
+- [ ] 不要一上来就重构
+- [ ] 不要一上来就跑大范围改动
+- [ ] 不要自动扩大到 P0-3 / P1 / P2
+- [ ] 不要把 cc-switch 整套架构搬过来
+- [ ] 不要把本文档里的背景判断直接当成已完成代码项
 
 ---
 
@@ -123,21 +123,29 @@ src/conversion/stream_chat_to_responses.rs
 
 ### 4.2 cc-switch 参考仓库
 
+远程仓库：
+
 ```txt
 https://github.com/farion1231/cc-switch
+```
+
+本地路径，优先读取本地源码：
+
+```txt
+D:\AI-Tools\cc-switch
 ```
 
 重点参考文件：
 
 ```txt
-src-tauri/src/proxy/providers/streaming_codex_chat.rs
-src-tauri/src/proxy/providers/transform_codex_chat.rs
+D:\AI-Tools\cc-switch\src-tauri\src\proxy\providers\streaming_codex_chat.rs
+D:\AI-Tools\cc-switch\src-tauri\src\proxy\providers\transform_codex_chat.rs
 ```
 
 辅助参考：
 
 ```txt
-src-tauri/src/proxy/providers/streaming.rs
+D:\AI-Tools\cc-switch\src-tauri\src\proxy\providers\streaming.rs
 ```
 
 ### 4.3 上一窗口已经形成的判断
@@ -154,79 +162,79 @@ src-tauri/src/proxy/providers/streaming.rs
 
 ---
 
-## 5. 新窗口第一轮对齐清单
+## 5. 本地 Claude Code 第一轮对齐清单
 
-> 新窗口应该先回复这一节内容，而不是直接改代码。
+> 本地 Claude Code 应先回复这一节内容，而不是直接改代码。
 
 ### 5.1 需要向用户确认的理解
 
-- [x] 目标是给 Codex subagent 使用 OpenCode Go 模型
-- [x] 方式是做 Responses API ↔ Chat Completions-like API 的双向协议转换层
-- [x] 请求方向是 `Responses -> Chat Completions-like`，响应方向是 `Chat Completions-like -> Responses`
-- [x] cc-switch 是行为参考，不是完整复制对象
-- [x] 当前只做 P0-1：响应方向中的 streaming tool_call 生命周期移植
-- [x] 第一轮默认只改 `src/conversion/stream_chat_to_responses.rs`
-- [x] 测试可以补，但不要为了测试大改项目结构
+- [ ] 目标是给 Codex subagent 使用 OpenCode Go 模型
+- [ ] 方式是做 Responses API ↔ Chat Completions-like API 的双向协议转换层
+- [ ] 请求方向是 `Responses -> Chat Completions-like`，响应方向是 `Chat Completions-like -> Responses`
+- [ ] cc-switch 是行为参考，不是完整复制对象
+- [ ] 当前只做 P0-1：响应方向中的 streaming tool_call 生命周期移植
+- [ ] 第一轮默认只改 `src/conversion/stream_chat_to_responses.rs`
+- [ ] 测试可以补，但不要为了测试大改项目结构
 
 ### 5.2 需要向用户说明的执行边界
 
 本轮不做：
 
-- [x] 不做 provider 平台
-- [x] 不做配置系统重构
-- [x] 不做 OpenCode Go 真实接入测试
-- [x] 不做 P0-3 stream truncated 收口
-- [x] 不做 P1 request transform
-- [x] 不做 P2 non-stream response
-- [x] 不重写整个 adapter
+- [ ] 不做 provider 平台
+- [ ] 不做配置系统重构
+- [ ] 不做 OpenCode Go 真实接入测试
+- [ ] 不做 P0-3 stream truncated 收口
+- [ ] 不做 P1 request transform
+- [ ] 不做 P2 non-stream response
+- [ ] 不重写整个 adapter
 
 ### 5.3 需要向用户说明的实现策略
 
-- [x] 不是零散补丁
-- [x] 不是整文件复制 cc-switch
-- [x] 是把 cc-switch 的 tool_call 生命周期移植到当前 `StreamAssembler`
-- [x] 主要是替换当前 `tool_calls: BTreeMap<usize, Value>` 的不稳定实现
-- [x] 用显式 `StreamingToolCall` 状态承载 index / call_id / name / arguments / added / done
+- [ ] 不是零散补丁
+- [ ] 不是整文件复制 cc-switch
+- [ ] 是把 cc-switch 的 tool_call 生命周期移植到当前 `StreamAssembler`
+- [ ] 主要是替换当前 `tool_calls: BTreeMap<usize, Value>` 的不稳定实现
+- [ ] 用显式 `StreamingToolCall` 状态承载 index / call_id / name / arguments / added / done
 
 ---
 
-## 6. 新窗口开工复核清单
+## 6. 本地 Claude Code 开工复核清单
 
 > 只有用户明确同意开始后，才进入本节。  
-> 这些项目必须由新窗口自己复核后才能打勾。
+> 这些项目必须由本地 Claude Code 自己复核后才能打勾。
 
 ### 6.1 复核目标仓库
 
-- [x] 打开目标仓库 `HisenWeb/codex-opencode-adapter`
+- [ ] 打开目标仓库 `HisenWeb/codex-opencode-adapter`
 - [ ] 确认当前分支和工作区状态
-- [x] 打开 `src/conversion/stream_chat_to_responses.rs`
-- [x] 确认当前 `StreamAssembler` 仍包含 `tool_calls: BTreeMap<usize, Value>`
-- [x] 确认 `accept_tool_delta` 仍存在 `unwrap_or(0)` 或等价默认 index=0 行为
-- [x] 确认 `ensure_tool_started` 当前 start 条件仍没有同时要求 `call_id + name`
-- [x] 确认 `finalize()` 当前是否缺少开头 `terminal_emitted` 保护
+- [ ] 打开 `src/conversion/stream_chat_to_responses.rs`
+- [ ] 确认当前 `StreamAssembler` 仍包含 `tool_calls: BTreeMap<usize, Value>`
+- [ ] 确认 `accept_tool_delta` 仍存在 `unwrap_or(0)` 或等价默认 index=0 行为
+- [ ] 确认 `ensure_tool_started` 当前 start 条件仍没有同时要求 `call_id + name`
+- [ ] 确认 `finalize()` 当前是否缺少开头 `terminal_emitted` 保护
 
 说明：
 
 - 已通过 GitHub 远程仓库复核默认分支内容；当前执行环境无法访问用户本机 `D:\AI-Tools\codex-opencode-adapter` 工作区，因此“当前分支和工作区状态”暂不打勾。
 
-### 6.2 复核 cc-switch 参考行为
+### 6.2 复核本地 cc-switch 参考行为
 
-- [x] 打开 cc-switch 的 `streaming_codex_chat.rs`
-- [x] 确认 cc-switch 按 `index -> ToolCallState` 绑定 tool_call
-- [x] 确认 cc-switch 是 `call_id + name` 齐全后才 start
-- [x] 确认 cc-switch arguments 是 append/cache，并在 start 后补发 pending delta
-- [x] 确认 cc-switch finalize 会补齐 arguments done / output item done
-- [x] 确认 cc-switch terminal event 有 completed/failed 幂等保护
+- [ ] 打开 cc-switch 的 `streaming_codex_chat.rs`
+- [ ] 确认 cc-switch 按 `index -> ToolCallState` 绑定 tool_call
+- [ ] 确认 cc-switch 是 `call_id + name` 齐全后才 start
+- [ ] 确认 cc-switch arguments 是 append/cache，并在 start 后补发 pending delta
+- [ ] 确认 cc-switch finalize 会补齐 arguments done / output item done
+- [ ] 确认 cc-switch terminal event 有 completed/failed 幂等保护
 
 ### 6.3 复核实现范围
 
-- [x] 第一轮只做 P0-1
-- [x] 第一轮优先只改 `src/conversion/stream_chat_to_responses.rs`
-- [x] 不混入 P0-3 stream truncated 收口
-- [x] 不混入 P1 request transform
-- [x] 不混入 P2 non-stream response
-- [x] 不做 provider 平台
-- [x] 不做 OpenCode Go 实测
+- [ ] 第一轮只做 P0-1
+- [ ] 第一轮优先只改 `src/conversion/stream_chat_to_responses.rs`
+- [ ] 不混入 P0-3 stream truncated 收口
+- [ ] 不混入 P1 request transform
+- [ ] 不混入 P2 non-stream response
+- [ ] 不做 provider 平台
+- [ ] 不做 OpenCode Go 实测
 
 ---
 
@@ -282,16 +290,16 @@ struct StreamingToolCall {
 
 TODO：
 
-- [x] 新增 `StreamingToolCall` struct
-- [x] 将 `tool_calls` 从 `BTreeMap<usize, Value>` 改为 `BTreeMap<usize, StreamingToolCall>`
-- [x] 移除 tool_call 内部用 `serde_json::Value` 存状态的写法
-- [x] 保留 `BTreeMap`，确保 finalize 顺序 deterministic
+- [ ] 新增 `StreamingToolCall` struct
+- [ ] 将 `tool_calls` 从 `BTreeMap<usize, Value>` 改为 `BTreeMap<usize, StreamingToolCall>`
+- [ ] 移除 tool_call 内部用 `serde_json::Value` 存状态的写法
+- [ ] 保留 `BTreeMap`，确保 finalize 顺序 deterministic
 
 验收：
 
-- [x] 每个 tool_call 的状态字段可直接读写
-- [x] 不再依赖 JSON path 读写内部状态
-- [x] finalize 时遍历顺序稳定
+- [ ] 每个 tool_call 的状态字段可直接读写
+- [ ] 不再依赖 JSON path 读写内部状态
+- [ ] finalize 时遍历顺序稳定
 
 ---
 
@@ -311,17 +319,17 @@ unwrap_or(0)
 
 TODO：
 
-- [x] `index` 必须存在
-- [x] 缺失 index 时不再默认归到 0
-- [x] 缺失 index 的 delta 不参与 merge
-- [x] 缺失 index 时记录 warning
-- [x] 不污染 index=0
+- [ ] `index` 必须存在
+- [ ] 缺失 index 时不再默认归到 0
+- [ ] 缺失 index 的 delta 不参与 merge
+- [ ] 缺失 index 时记录 warning
+- [ ] 不污染 index=0
 
 验收：
 
 - [ ] 多 tool_call 交错时不会串线
-- [x] 缺失 index 不会污染 index=0
-- [x] `index -> tool state` 是唯一归属锚点
+- [ ] 缺失 index 不会污染 index=0
+- [ ] `index -> tool state` 是唯一归属锚点
 
 ---
 
@@ -338,18 +346,18 @@ TODO：
 
 TODO：
 
-- [x] 新 state 的 `call_id` 初始为空
-- [x] delta 带 id 时写入 `call_id`
-- [x] 未 added 前允许更新 `call_id`
-- [x] added 后收到不同 id 时 warning，不覆盖
-- [x] finalize 时缺失 `call_id` fallback 为 `call_{index}`
-- [x] 删除随机 UUID call_id fallback
+- [ ] 新 state 的 `call_id` 初始为空
+- [ ] delta 带 id 时写入 `call_id`
+- [ ] 未 added 前允许更新 `call_id`
+- [ ] added 后收到不同 id 时 warning，不覆盖
+- [ ] finalize 时缺失 `call_id` fallback 为 `call_{index}`
+- [ ] 删除随机 UUID call_id fallback
 
 验收：
 
-- [x] 同一 index 的 call_id 生命周期稳定
-- [x] start 后 call_id 不再变化
-- [x] final output / pending_call_ids / replay tool_calls 使用同一 call_id
+- [ ] 同一 index 的 call_id 生命周期稳定
+- [ ] start 后 call_id 不再变化
+- [ ] final output / pending_call_ids / replay tool_calls 使用同一 call_id
 
 ---
 
@@ -364,16 +372,16 @@ TODO：
 
 TODO：
 
-- [x] name delta 改为覆盖
-- [x] name 为空时不覆盖
-- [x] added 后不再改 name
-- [x] added 后收到不同 name 时记录 warning
+- [ ] name delta 改为覆盖
+- [ ] name 为空时不覆盖
+- [ ] added 后不再改 name
+- [ ] added 后收到不同 name 时记录 warning
 
 验收：
 
-- [x] name 不会被拼接坏
-- [x] name 一旦用于 start 就保持稳定
-- [x] 不生成错误工具名
+- [ ] name 不会被拼接坏
+- [ ] name 一旦用于 start 就保持稳定
+- [ ] 不生成错误工具名
 
 ---
 
@@ -387,20 +395,20 @@ TODO：
 
 TODO：
 
-- [x] 修改 `ensure_tool_started(index)`
-- [x] id 未到时不 start
-- [x] name 未到时不 start
-- [x] start 前 finish text item
-- [x] start 前 finish reasoning item
-- [x] 分配 `output_index`
-- [x] 设置 `added = true`
-- [x] 发 `response.output_item.added`
+- [ ] 修改 `ensure_tool_started(index)`
+- [ ] id 未到时不 start
+- [ ] name 未到时不 start
+- [ ] start 前 finish text item
+- [ ] start 前 finish reasoning item
+- [ ] 分配 `output_index`
+- [ ] 设置 `added = true`
+- [ ] 发 `response.output_item.added`
 
 验收：
 
-- [x] start 时 call_id/name 都是稳定值
-- [x] start 后 item 状态为 `in_progress`
-- [x] 不会提前生成不完整 function_call item
+- [ ] start 时 call_id/name 都是稳定值
+- [ ] start 后 item 状态为 `in_progress`
+- [ ] 不会提前生成不完整 function_call item
 
 ---
 
@@ -416,18 +424,18 @@ TODO：
 
 TODO：
 
-- [x] arguments delta append 到 `state.arguments`
-- [x] added=true 时立即发 arguments delta
-- [x] added=false 时缓存 arguments
-- [x] start 后补发 pending arguments
-- [x] 防止重复补发
+- [ ] arguments delta append 到 `state.arguments`
+- [ ] added=true 时立即发 arguments delta
+- [ ] added=false 时缓存 arguments
+- [ ] start 后补发 pending arguments
+- [ ] 防止重复补发
 
 验收：
 
-- [x] arguments 先到不会丢
-- [x] id/name 后到时 start 后立刻补发 pending arguments
+- [ ] arguments 先到不会丢
+- [ ] id/name 后到时 start 后立刻补发 pending arguments
 - [ ] final done arguments 与 delta 累计一致
-- [x] 不重复发同一段 arguments
+- [ ] 不重复发同一段 arguments
 
 ---
 
@@ -435,25 +443,25 @@ TODO：
 
 TODO：
 
-- [x] finalize 遍历 `BTreeMap<usize, StreamingToolCall>`
-- [x] 已 done 的跳过
-- [x] name 缺失的 tool_call 跳过并 warning
-- [x] call_id 缺失时 fallback 为 `call_{index}`
-- [x] 未 added 但 name 有效时，finalize 阶段补发 `response.output_item.added`
-- [x] arguments 用 `canonicalize_json_string_if_parseable`
-- [x] 发 `response.function_call_arguments.done`
-- [x] 发 `response.output_item.done`
-- [x] 设置 `done = true`
-- [x] 加入 final response output
-- [x] 加入 stored assistant.tool_calls replay
-- [x] 加入 pending_call_ids
+- [ ] finalize 遍历 `BTreeMap<usize, StreamingToolCall>`
+- [ ] 已 done 的跳过
+- [ ] name 缺失的 tool_call 跳过并 warning
+- [ ] call_id 缺失时 fallback 为 `call_{index}`
+- [ ] 未 added 但 name 有效时，finalize 阶段补发 `response.output_item.added`
+- [ ] arguments 用 `canonicalize_json_string_if_parseable`
+- [ ] 发 `response.function_call_arguments.done`
+- [ ] 发 `response.output_item.done`
+- [ ] 设置 `done = true`
+- [ ] 加入 final response output
+- [ ] 加入 stored assistant.tool_calls replay
+- [ ] 加入 pending_call_ids
 
 验收：
 
-- [x] done 只发一次
-- [x] final output 中 function_call 完整
-- [x] pending_call_ids 与 function_call.call_id 一致
-- [x] stored history 可被下一轮 function_call_output 正确接上
+- [ ] done 只发一次
+- [ ] final output 中 function_call 完整
+- [ ] pending_call_ids 与 function_call.call_id 一致
+- [ ] stored history 可被下一轮 function_call_output 正确接上
 
 ---
 
@@ -469,10 +477,10 @@ if self.terminal_emitted {
 
 TODO：
 
-- [x] finalize 开头增加 `terminal_emitted` 检查
-- [x] `response.completed` 只发一次
-- [x] `response.incomplete` 只发一次
-- [x] `response.failed` 只发一次
+- [ ] finalize 开头增加 `terminal_emitted` 检查
+- [ ] `response.completed` 只发一次
+- [ ] `response.incomplete` 只发一次
+- [ ] `response.failed` 只发一次
 - [ ] `[DONE]` 后不再被自然结束重复 finalize
 
 验收：
@@ -546,13 +554,9 @@ TODO：
 
 验收：
 
-- [x] `cargo test` 通过
+- [ ] `cargo test` 通过
 - [ ] 新增测试能覆盖核心 tool_call 生命周期
 - [ ] 测试不依赖真实 OpenCode Go
-
-说明：
-
-- `cargo test` 通过来自用户本地验证。本轮尚未新增 P0-2 测试用例，因此只勾选整体测试命令通过，不勾选新增测试覆盖项。
 
 ---
 
@@ -786,13 +790,13 @@ docs/codex-opencode-adapter-handoff-todolist.md
 - 尚未运行 `cargo test`。
 - 尚未补 P0-2 测试用例。
 
-### 2026-06-23：用户本地 cargo test 通过
+### 2026-06-23：生成本地 Claude Code 接手版
 
 状态：
 
-- 用户反馈本地执行 `cargo test` 已通过。
-- 已将该验证结果写入本文档。
-- 未新增测试用例，故 P0-2 的“新增测试覆盖核心 tool_call 生命周期”仍不打勾。
+- 用户已说明 cc-switch 已 clone 到 `D:\AI-Tools\cc-switch`。
+- 本版本将所有 checklist 重置为未勾选，避免本地 Claude Code 误以为自己已经完成对齐、复核或验证。
+- 历史完成情况只保留在“进度记录”中；后续勾选必须来自本地 Claude Code 的实际阅读、修改和验证。
 
 改动文件：
 
@@ -802,29 +806,33 @@ docs/codex-opencode-adapter-handoff-todolist.md
 
 验证：
 
-```txt
-cargo test
-```
-
-结果：
-
-```txt
-通过
-```
+- 确认 checklist 中没有 `[x]`。
+- 确认文档包含本地 cc-switch 路径。
 
 还没做：
 
-- 尚未补 P0-2 专项测试用例。
-- 尚未做 OpenCode Go 真实接入测试。
-- 尚未处理 P0-3 stream 收口。
-- 尚未处理 P0-4 / P1 请求方向和 history 回链。
+- 本地 Claude Code 尚未完成接手对齐。
+- 本地 Claude Code 尚未阅读目标代码。
+- 本地 Claude Code 尚未重新运行 `cargo test`。
 
 ---
 
-## 15. 新窗口启动提示词
+## 15. 本地 Claude Code 启动提示词
 
-把本文档发给新窗口后，可以直接说：
+把本文档发给本地 Claude Code 后，可以直接说：
 
 ```txt
-先不要写代码。请先按这份交接文档和我对齐：复述你的理解、准备改哪些文件、不改哪些文件、P0-1 的执行策略和风险点。等我确认后，再进入开工复核和实现。
+先不要写代码。
+
+请先读取 docs/codex-opencode-adapter-handoff-todolist.md，并完成接手对齐：
+
+1. 复述你理解的项目目标和当前阶段。
+2. 说明你会先读取哪些本地文件。
+3. 说明你不会直接进入 P0-2/P0-3/P1。
+4. 运行并汇报 git status、git log --oneline -8、cargo test。
+5. 阅读 src/conversion/stream_chat_to_responses.rs。
+6. 阅读 D:\AI-Tools\cc-switch 中的参考文件。
+7. 对照 TODO 说明哪些项可以确认，哪些还不能确认。
+
+我确认后，你再更新 TODO 或进入 P0-2。
 ```
