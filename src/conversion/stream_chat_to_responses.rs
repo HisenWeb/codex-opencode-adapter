@@ -339,7 +339,7 @@ impl StreamAssembler {
                 if entry.added {
                     if entry.call_id.is_empty() {
                         entry.call_id = id;
-                    } else if entry.call_id != id {
+                    } else if entry.call_id.as_str() != id.as_str() {
                         tracing::warn!(index, existing = %entry.call_id, incoming = %id, "ignoring streaming tool call id change after start");
                     }
                 } else {
@@ -348,7 +348,7 @@ impl StreamAssembler {
             }
             if let Some(name) = name_delta {
                 if entry.added {
-                    if entry.name != name {
+                    if entry.name.as_str() != name.as_str() {
                         tracing::warn!(index, existing = %entry.name, incoming = %name, "ignoring streaming tool call name change after start");
                     }
                 } else {
@@ -422,7 +422,7 @@ impl StreamAssembler {
             tracing::warn!(index, "cannot emit arguments without output_index");
             return Ok(());
         };
-        self.emit_event("response.function_call_arguments.delta", json!({"type":"response.function_call_arguments.delta","output_index":output_index,"item_id":entry.item_id,"call_id":entry.call_id,"delta":part}))
+        self.emit_event("response.function_call_arguments.delta", json!({"type":"response.function_call_arguments.delta","output_index":output_index,"item_id":entry.item_id.clone(),"call_id":entry.call_id.clone(),"delta":part}))
     }
 
     fn allocate_output_index(&mut self) -> u32 {
