@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::responses_to_chat::repair_history;
-use super::text::{arguments_text, as_text, canonicalize_json_string_if_parseable, reasoning_text};
-use super::tool_context::ToolContext;
+use super::text::{arguments_text, as_text, canonicalize_json_string_if_parseable, compact_json, reasoning_text};
+use super::tool_context::{ToolContext, ToolKind};
 
 #[allow(clippy::too_many_arguments)] // All params map 1:1 to distinct JSON fields.
 pub fn build_response<F>(
@@ -50,34 +50,51 @@ where
     let mut pending = Vec::new();
     let mut replay_calls = Vec::new();
     if let Some(calls) = message.get("tool_calls").and_then(Value::as_array) {
-        for call in calls {
+        for (index, call) in calls.iter().enumerate() {
             let function = call.get("function").unwrap_or(&Value::Null);
-            let raw_name = function.get("name").or_else(|| call.get("name")).and_then(Value::as_str).unwrap_or("tool");
-            let call_id = call.get("id").or_else(|| call.get("call_id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
+            let raw_name = function.get("name").or_else(|| call.get("name")).and_then(Value::as_str).unwrap_or("");
+            if raw_name.is_empty() {
+                tracing::warn!(index, "skipping nonstream tool call without name");
+                continue;
+            }
+            let call_id = call.get("id").or_else(|| call.get("call_id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{index}"));
             let arguments = canonicalize_json_string_if_parseable(&arguments_text(function.get("arguments").or_else(|| call.get("arguments"))));
-            replay_calls.push(json!({"id":call_id,"type":"function","function":{"name":raw_name,"arguments":arguments}}));
+            replay_calls.push(json!({"id":call_id.clone(),"type":"function","function":{"name":raw_name,"arguments":arguments}}));
             pending.push(call_id.clone());
 
-            let restored_name = context.restore_name(raw_name);
             let spec = context.lookup_spec(raw_name);
-            let item_type = match spec.as_ref().map(|s| &s.kind) {
-                Some(super::tool_context::ToolKind::Custom) => "custom_tool_call",
-                Some(super::tool_context::ToolKind::ToolSearch) => "tool_search_call",
-                _ => "function_call",
+            let mut item = match spec.as_ref().map(|s| &s.kind) {
+                Some(ToolKind::Custom) => json!({
+                    "type": "custom_tool_call",
+                    "id": format!("ctc_{}", call_id),
+                    "call_id": call_id,
+                    "name": spec.unwrap().name,
+                    "input": custom_tool_input_from_chat_arguments(&arguments),
+                    "status": "completed"
+                }),
+                Some(ToolKind::ToolSearch) => json!({
+                    "type": "tool_search_call",
+                    "call_id": call_id,
+                    "execution": "client",
+                    "arguments": parse_tool_arguments_object(&arguments),
+                    "status": "completed"
+                }),
+                _ => {
+                    let restored_name = spec.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| context.restore_name(raw_name));
+                    let mut item = json!({
+                        "type": "function_call",
+                        "id": format!("fc_{}", call_id),
+                        "call_id": call_id,
+                        "name": restored_name,
+                        "arguments": arguments,
+                        "status": "completed"
+                    });
+                    if let Some(ns) = spec.and_then(|s| s.namespace.as_deref()).filter(|n| !n.is_empty()) {
+                        item["namespace"] = Value::String(ns.to_string());
+                    }
+                    item
+                }
             };
-            let mut item = json!({
-                "type": item_type,
-                "id": format!("fc_{}", Uuid::new_v4().simple()),
-                "call_id": call_id,
-                "name": restored_name,
-                "arguments": arguments,
-                "status": "completed"
-            });
-            // Attach namespace if present
-            if let Some(ns) = spec.and_then(|s| s.namespace.as_deref()).filter(|n| !n.is_empty()) {
-                item["namespace"] = Value::String(ns.to_string());
-            }
-            // Attach reasoning content to tool items
             if !reasoning.is_empty() {
                 item["reasoning_content"] = Value::String(reasoning.clone());
             }
@@ -104,6 +121,26 @@ where
     let usage = chat_response.get("usage").cloned().unwrap_or_else(|| json!({}));
     let (status, incomplete) = completion_status(&content, &pending, choice.get("finish_reason"));
     Ok(response_shell(body, &response_id, created_at, model_alias, output, &usage, status, incomplete))
+}
+
+fn custom_tool_input_from_chat_arguments(arguments: &str) -> String {
+    if arguments.trim().is_empty() {
+        return String::new();
+    }
+    match serde_json::from_str::<Value>(arguments) {
+        Ok(Value::Object(obj)) => obj.get("input").and_then(Value::as_str).unwrap_or(arguments).to_string(),
+        _ => arguments.to_string(),
+    }
+}
+
+fn parse_tool_arguments_object(arguments: &str) -> Value {
+    if arguments.trim().is_empty() {
+        return json!({});
+    }
+    serde_json::from_str::<Value>(arguments)
+        .ok()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({"query": arguments}))
 }
 
 pub fn reasoning_item(text: &str, item_id: Option<String>) -> Value {
