@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 const CHAT_TOOL_NAME_MAX_LEN: usize = 64;
 const CUSTOM_TOOL_INPUT_FIELD: &str = "input";
+const TOOL_SEARCH_NAME: &str = "tool_search";
 
 pub fn custom_tool_input_field() -> &'static str {
     CUSTOM_TOOL_INPUT_FIELD
@@ -58,7 +59,14 @@ impl ToolContext {
     pub fn is_custom_tool_chat_name(&self, name: &str) -> bool {
         self.specs_by_chat_name
             .get(name)
-            .map(|spec| matches!(spec.kind, ToolKind::Custom | ToolKind::ToolSearch))
+            .map(|spec| matches!(spec.kind, ToolKind::Custom))
+            .unwrap_or(false)
+    }
+
+    pub fn is_tool_search_chat_name(&self, name: &str) -> bool {
+        self.specs_by_chat_name
+            .get(name)
+            .map(|spec| matches!(spec.kind, ToolKind::ToolSearch))
             .unwrap_or(false)
     }
 
@@ -88,7 +96,7 @@ impl ToolContext {
         match obj.get("type").and_then(Value::as_str).unwrap_or("function") {
             "namespace" => self.add_namespace(item),
             "custom" => self.add_custom(item, ToolKind::Custom),
-            "tool_search" => self.add_custom(&json!({"type":"tool_search","name":"tool_search"}), ToolKind::ToolSearch),
+            "tool_search" => self.add_tool_search(item),
             _ => self.add_function(tool_source(item).unwrap_or(item), None, None),
         }
     }
@@ -126,6 +134,36 @@ impl ToolContext {
                 }
             },
             "required": [CUSTOM_TOOL_INPUT_FIELD]
+        }), description);
+    }
+
+    fn add_tool_search(&mut self, item: &Value) {
+        let original = TOOL_SEARCH_NAME;
+        let chat_name = self.safe_name(original);
+        let description = item
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("Search for tools available to the client.")
+            .to_string();
+        let spec = ToolSpec {
+            kind: ToolKind::ToolSearch,
+            name: original.to_string(),
+            chat_name: chat_name.clone(),
+            namespace: None,
+        };
+        self.add_chat_tool(original, spec, json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for tools."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of tools to return."
+                }
+            },
+            "required": ["query"]
         }), description);
     }
 
