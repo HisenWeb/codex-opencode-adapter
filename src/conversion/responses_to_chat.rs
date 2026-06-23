@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::text::{arguments_text, as_text};
-use super::tool_context::ToolContext;
+use super::text::{arguments_text, as_text, compact_json};
+use super::tool_context::{custom_tool_input_field, ToolContext};
 
 /// Return type for `build_chat_payload`: (payload, messages, reverse_names, tool_context).
 pub type ChatPayload = (Value, Vec<Value>, std::collections::HashMap<String, String>, ToolContext);
@@ -19,7 +19,13 @@ pub fn function_output_call_ids(body: &Value) -> Result<Vec<String>, HistoryErro
     let (_messages, outputs) = extract_request(body)?;
     Ok(outputs
         .into_iter()
-        .filter_map(|output| output.get("tool_call_id").and_then(Value::as_str).map(ToString::to_string))
+        .filter_map(|output| {
+            output
+                .get("tool_call_id")
+                .or_else(|| output.get("call_id"))
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
         .collect())
 }
 
@@ -29,7 +35,8 @@ pub fn build_chat_payload(
     previous: Option<&StoredResponse>,
     reasoning_parameter: Value,
 ) -> Result<ChatPayload, HistoryError> {
-    let (incoming, outputs) = extract_request(body)?;
+    let context = ToolContext::build_with_input(body.get("tools"), body.get("input"));
+    let (incoming, outputs) = extract_request_with_context(body, &context)?;
     let mut messages = if !outputs.is_empty() {
         let previous = previous.ok_or_else(|| HistoryError::Invalid("tool output has no matching stored response".to_string()))?;
         let repaired = repair_history(&previous.messages, Some(&outputs))?;
@@ -44,7 +51,6 @@ pub fn build_chat_payload(
     }
     messages = normalize_upstream_roles(&messages);
 
-    let context = ToolContext::build(body.get("tools"));
     let mut payload = json!({
         "model": model_upstream,
         "messages": messages,
@@ -77,6 +83,7 @@ pub fn build_chat_payload(
         ("metadata", "metadata"),
         ("n", "n"),
         ("service_tier", "service_tier"),
+        ("stream_options", "stream_options"),
         ("top_logprobs", "top_logprobs"),
         ("user", "user"),
     ] {
@@ -86,7 +93,6 @@ pub fn build_chat_payload(
     }
 
     if payload.get("stream").and_then(Value::as_bool).unwrap_or(false) {
-        // Merge include_usage into existing stream_options (don't overwrite other fields)
         let stream_opts = payload.get("stream_options").cloned().unwrap_or_else(|| json!({}));
         if let Some(obj) = stream_opts.as_object() {
             let mut merged = obj.clone();
@@ -106,6 +112,11 @@ pub fn build_chat_payload(
 }
 
 pub fn extract_request(body: &Value) -> Result<(Vec<Value>, Vec<Value>), HistoryError> {
+    let context = ToolContext::build_with_input(body.get("tools"), body.get("input"));
+    extract_request_with_context(body, &context)
+}
+
+fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(Vec<Value>, Vec<Value>), HistoryError> {
     let mut messages = Vec::new();
     let mut tool_outputs = Vec::new();
 
@@ -146,25 +157,65 @@ pub fn extract_request(body: &Value) -> Result<(Vec<Value>, Vec<Value>), History
                     return Err(HistoryError::Invalid(format!("{kind} requires call_id")));
                 }
                 flush_pending(&mut messages, &mut pending_calls);
-                let empty = Value::String(String::new());
+                let content = if kind == "function_call_output" {
+                    let empty = Value::String(String::new());
+                    as_text(obj.get("output").unwrap_or(&empty))
+                } else {
+                    compact_json(&Value::Object(obj.clone()))
+                };
                 tool_outputs.push(json!({
                     "role":"tool",
                     "tool_call_id":call_id,
-                    "content":as_text(obj.get("output").unwrap_or(&empty)),
+                    "content":content,
                 }));
             }
-            "function_call" | "custom_tool_call" | "tool_search_call" => {
+            "function_call" => {
+                let call_id = obj.get("call_id").or_else(|| obj.get("id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
+                let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
+                if name.is_empty() {
+                    tracing::warn!("skipping function_call without name in request history");
+                    continue;
+                }
+                let chat_name = context.chat_name_for_response_function(name, obj.get("namespace").and_then(Value::as_str));
                 pending_calls.push(json!({
-                    "id": obj.get("call_id").or_else(|| obj.get("id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple())),
+                    "id": call_id,
                     "type":"function",
                     "function":{
-                        "name": obj.get("name").and_then(Value::as_str).unwrap_or("tool"),
+                        "name": chat_name,
                         "arguments": arguments_text(obj.get("arguments")),
                     }
                 }));
             }
+            "custom_tool_call" => {
+                let call_id = obj.get("call_id").or_else(|| obj.get("id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
+                let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
+                if name.is_empty() {
+                    tracing::warn!("skipping custom_tool_call without name in request history");
+                    continue;
+                }
+                let input = obj.get("input").cloned().unwrap_or_else(|| json!(""));
+                pending_calls.push(json!({
+                    "id": call_id,
+                    "type":"function",
+                    "function":{
+                        "name": context.chat_name_for_response_function(name, None),
+                        "arguments": compact_json(&json!({ custom_tool_input_field(): input })),
+                    }
+                }));
+            }
+            "tool_search_call" => {
+                let call_id = obj.get("call_id").or_else(|| obj.get("id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
+                let arguments = obj.get("arguments").map(compact_json).unwrap_or_else(|| "{}".to_string());
+                pending_calls.push(json!({
+                    "id": call_id,
+                    "type":"function",
+                    "function":{
+                        "name": "tool_search",
+                        "arguments": arguments,
+                    }
+                }));
+            }
             "reasoning" | "summary" => {
-                // Preserve reasoning items as assistant reasoning_content in history
                 if let Some(summary_text) = obj.get("summary").and_then(Value::as_array).and_then(|a| a.first()).and_then(|s| s.get("text")).and_then(Value::as_str) {
                     if !summary_text.is_empty() {
                         flush_pending(&mut messages, &mut pending_calls);
@@ -273,12 +324,15 @@ fn convert_tool_choice(choice: Option<&Value>, context: &ToolContext) -> Option<
     }
     if matches!(kind, "function" | "tool") {
         let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
-        let chat_name = context
-            .reverse_names
-            .iter()
-            .find_map(|(safe, original)| (original == name).then_some(safe.clone()))
-            .unwrap_or_else(|| name.to_string());
+        let chat_name = context.chat_name_for_response_function(name, obj.get("namespace").and_then(Value::as_str));
         return Some(json!({"type":"function","function":{"name":chat_name}}));
+    }
+    if kind == "custom" {
+        let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
+        return Some(json!({"type":"function","function":{"name":context.chat_name_for_response_function(name, None)}}));
+    }
+    if kind == "tool_search" {
+        return Some(json!({"type":"function","function":{"name":"tool_search"}}));
     }
     Some(choice.clone())
 }
