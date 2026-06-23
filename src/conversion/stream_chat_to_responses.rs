@@ -175,9 +175,11 @@ impl StreamAssembler {
             replay_calls.push(json!({"id":call_id.clone(),"type":"function","function":{"name":raw_name.clone(),"arguments":arguments.clone()}}));
             pending.push(call_id.clone());
             let item = self.response_tool_item(&item_id, "completed", &call_id, &raw_name, &arguments);
-            let is_custom = self.tool_context.is_custom_tool_chat_name(&raw_name);
-            if is_custom {
+            if self.tool_context.is_custom_tool_chat_name(&raw_name) {
                 let input = custom_tool_input_from_chat_arguments(&arguments);
+                if !input.is_empty() {
+                    self.emit_event("response.custom_tool_call_input.delta", json!({"type":"response.custom_tool_call_input.delta","output_index":output_index,"item_id":item_id,"delta":input}))?;
+                }
                 self.emit_event("response.custom_tool_call_input.done", json!({"type":"response.custom_tool_call_input.done","output_index":output_index,"item_id":item_id,"input":input}))?;
             } else {
                 self.emit_event("response.function_call_arguments.done", json!({"type":"response.function_call_arguments.done","output_index":output_index,"item_id":item_id,"call_id":call_id,"arguments":arguments}))?;
@@ -338,12 +340,9 @@ impl StreamAssembler {
         if part.is_empty() { return Ok(()); }
         let Some(entry) = self.tool_calls.get(&index) else { return Ok(()); };
         if !entry.added { return Ok(()); }
+        if self.tool_context.is_custom_tool_chat_name(&entry.name) { return Ok(()); }
         let Some(output_index) = entry.output_index else { return Ok(()); };
-        if self.tool_context.is_custom_tool_chat_name(&entry.name) {
-            self.emit_event("response.custom_tool_call_input.delta", json!({"type":"response.custom_tool_call_input.delta","output_index":output_index,"item_id":entry.item_id.clone(),"delta":custom_tool_input_from_chat_arguments(part)}))
-        } else {
-            self.emit_event("response.function_call_arguments.delta", json!({"type":"response.function_call_arguments.delta","output_index":output_index,"item_id":entry.item_id.clone(),"call_id":entry.call_id.clone(),"delta":part}))
-        }
+        self.emit_event("response.function_call_arguments.delta", json!({"type":"response.function_call_arguments.delta","output_index":output_index,"item_id":entry.item_id.clone(),"call_id":entry.call_id.clone(),"delta":part}))
     }
 
     fn response_tool_item(&self, item_id: &str, status: &str, call_id: &str, chat_name: &str, arguments: &str) -> Value {
