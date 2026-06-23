@@ -12,7 +12,7 @@ use tokio::sync::Semaphore;
 use crate::config::Config;
 use crate::conversion::{build_chat_payload, build_response, function_output_call_ids, StreamAssembler};
 use crate::state::StateStore;
-use crate::upstream::{extract_error_message, parse_chat_sse_bytes, sse_data_from_block, OpenCodeGoClient, UpstreamError};
+use crate::upstream::{extract_error_message, parse_chat_sse_bytes, sse_data_from_block, sse_event_from_block, OpenCodeGoClient, UpstreamError};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -160,7 +160,20 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                     match chunk {
                         Ok(bytes) => {
                             for block in parse_chat_sse_bytes(&mut buffer, &mut utf8_remainder, &bytes) {
-                                if let Some(data) = sse_data_from_block(&block) {
+                                let event_name = sse_event_from_block(&block);
+                                let data = sse_data_from_block(&block);
+                                if event_name.as_deref() == Some("error") {
+                                    let message = data
+                                        .as_deref()
+                                        .and_then(|data| serde_json::from_str::<Value>(data).ok())
+                                        .and_then(|value| extract_error_message(&value))
+                                        .or_else(|| data.clone().filter(|data| !data.trim().is_empty()))
+                                        .unwrap_or_else(|| "upstream stream error".to_string());
+                                    let _ = assembler.fail("upstream_error", &message);
+                                    let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
+                                    return;
+                                }
+                                if let Some(data) = data {
                                     if data.trim() == "[DONE]" {
                                         let _ = assembler.finalize();
                                         let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
