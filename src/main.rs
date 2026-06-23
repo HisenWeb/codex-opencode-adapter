@@ -9,7 +9,8 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("codex_opencode_adapter=info"));
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("codex_opencode_adapter=info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let config = Config::parse();
@@ -17,7 +18,11 @@ async fn main() -> anyhow::Result<()> {
         anyhow::bail!("CODEX_OPENCODE_LOCAL_TOKEN must differ from OPENCODE_GO_API_KEY");
     }
     let addr = config.addr()?;
-    let client = OpenCodeGoClient::new(&config.upstream_base, &config.upstream_key, config.timeout_seconds)?;
+    let client = OpenCodeGoClient::new(
+        &config.upstream_base,
+        &config.upstream_key,
+        config.timeout_seconds,
+    )?;
     let state = StateStore::new(&config.state_db, config.state_ttl_seconds)?;
     let app_state = AppState {
         config,

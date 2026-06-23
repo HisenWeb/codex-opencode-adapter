@@ -7,7 +7,12 @@ use super::text::{arguments_text, as_text, compact_json};
 use super::tool_context::{custom_tool_input_field, ToolContext};
 
 /// Return type for `build_chat_payload`: (payload, messages, reverse_names, tool_context).
-pub type ChatPayload = (Value, Vec<Value>, std::collections::HashMap<String, String>, ToolContext);
+pub type ChatPayload = (
+    Value,
+    Vec<Value>,
+    std::collections::HashMap<String, String>,
+    ToolContext,
+);
 
 #[derive(Debug, Error)]
 pub enum HistoryError {
@@ -38,7 +43,9 @@ pub fn build_chat_payload(
     let context = ToolContext::build_with_input(body.get("tools"), body.get("input"));
     let (incoming, outputs) = extract_request_with_context(body, &context)?;
     let mut messages = if !outputs.is_empty() {
-        let previous = previous.ok_or_else(|| HistoryError::Invalid("tool output has no matching stored response".to_string()))?;
+        let previous = previous.ok_or_else(|| {
+            HistoryError::Invalid("tool output has no matching stored response".to_string())
+        })?;
         let repaired = repair_history(&previous.messages, Some(&outputs))?;
         merge_new_messages(&repaired, &incoming)
     } else if let Some(previous) = previous {
@@ -92,8 +99,15 @@ pub fn build_chat_payload(
         }
     }
 
-    if payload.get("stream").and_then(Value::as_bool).unwrap_or(false) {
-        let stream_opts = payload.get("stream_options").cloned().unwrap_or_else(|| json!({}));
+    if payload
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        let stream_opts = payload
+            .get("stream_options")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         if let Some(obj) = stream_opts.as_object() {
             let mut merged = obj.clone();
             merged.insert("include_usage".to_string(), json!(true));
@@ -116,7 +130,10 @@ pub fn extract_request(body: &Value) -> Result<(Vec<Value>, Vec<Value>), History
     extract_request_with_context(body, &context)
 }
 
-fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(Vec<Value>, Vec<Value>), HistoryError> {
+fn extract_request_with_context(
+    body: &Value,
+    context: &ToolContext,
+) -> Result<(Vec<Value>, Vec<Value>), HistoryError> {
     let mut messages = Vec::new();
     let mut tool_outputs = Vec::new();
 
@@ -126,18 +143,26 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
         }
     }
 
-    let raw_input = body.get("input").cloned().unwrap_or_else(|| Value::Array(vec![]));
+    let raw_input = body
+        .get("input")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(vec![]));
     let items = match raw_input {
         Value::String(text) => vec![json!({"role":"user","content":text})],
         object @ Value::Object(_) => vec![object],
         Value::Array(items) => items,
-        _ => return Err(HistoryError::Invalid("input must be a string, object, or list".to_string())),
+        _ => {
+            return Err(HistoryError::Invalid(
+                "input must be a string, object, or list".to_string(),
+            ))
+        }
     };
 
     let mut pending_calls: Vec<Value> = Vec::new();
     let flush_pending = |messages: &mut Vec<Value>, pending_calls: &mut Vec<Value>| {
         if !pending_calls.is_empty() {
-            messages.push(json!({"role":"assistant","content":"","tool_calls":pending_calls.clone()}));
+            messages
+                .push(json!({"role":"assistant","content":"","tool_calls":pending_calls.clone()}));
             pending_calls.clear();
         }
     };
@@ -148,7 +173,9 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
             messages.push(json!({"role":"user","content":text}));
             continue;
         }
-        let Some(obj) = item.as_object() else { continue; };
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
         let kind = obj.get("type").and_then(Value::as_str).unwrap_or("");
         match kind {
             "function_call_output" | "custom_tool_call_output" | "tool_search_output" => {
@@ -170,13 +197,21 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
                 }));
             }
             "function_call" => {
-                let call_id = obj.get("call_id").or_else(|| obj.get("id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
+                let call_id = obj
+                    .get("call_id")
+                    .or_else(|| obj.get("id"))
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
                 let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
                 if name.is_empty() {
                     tracing::warn!("skipping function_call without name in request history");
                     continue;
                 }
-                let chat_name = context.chat_name_for_response_function(name, obj.get("namespace").and_then(Value::as_str));
+                let chat_name = context.chat_name_for_response_function(
+                    name,
+                    obj.get("namespace").and_then(Value::as_str),
+                );
                 pending_calls.push(json!({
                     "id": call_id,
                     "type":"function",
@@ -187,7 +222,12 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
                 }));
             }
             "custom_tool_call" => {
-                let call_id = obj.get("call_id").or_else(|| obj.get("id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
+                let call_id = obj
+                    .get("call_id")
+                    .or_else(|| obj.get("id"))
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
                 let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
                 if name.is_empty() {
                     tracing::warn!("skipping custom_tool_call without name in request history");
@@ -204,8 +244,16 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
                 }));
             }
             "tool_search_call" => {
-                let call_id = obj.get("call_id").or_else(|| obj.get("id")).and_then(Value::as_str).map(ToString::to_string).unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
-                let arguments = obj.get("arguments").map(compact_json).unwrap_or_else(|| "{}".to_string());
+                let call_id = obj
+                    .get("call_id")
+                    .or_else(|| obj.get("id"))
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()));
+                let arguments = obj
+                    .get("arguments")
+                    .map(compact_json)
+                    .unwrap_or_else(|| "{}".to_string());
                 pending_calls.push(json!({
                     "id": call_id,
                     "type":"function",
@@ -216,7 +264,13 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
                 }));
             }
             "reasoning" | "summary" => {
-                if let Some(summary_text) = obj.get("summary").and_then(Value::as_array).and_then(|a| a.first()).and_then(|s| s.get("text")).and_then(Value::as_str) {
+                if let Some(summary_text) = obj
+                    .get("summary")
+                    .and_then(Value::as_array)
+                    .and_then(|a| a.first())
+                    .and_then(|s| s.get("text"))
+                    .and_then(Value::as_str)
+                {
                     if !summary_text.is_empty() {
                         flush_pending(&mut messages, &mut pending_calls);
                         messages.push(json!({"role":"assistant","reasoning_content":summary_text,"content":""}));
@@ -225,23 +279,43 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
             }
             "message" | "" => {
                 flush_pending(&mut messages, &mut pending_calls);
-                let mut role = obj.get("role").and_then(Value::as_str).unwrap_or("user").to_string();
-                if role == "developer" { role = "system".to_string(); }
-                if !matches!(role.as_str(), "system" | "user" | "assistant" | "tool") { role = "user".to_string(); }
+                let mut role = obj
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("user")
+                    .to_string();
+                if role == "developer" {
+                    role = "system".to_string();
+                }
+                if !matches!(role.as_str(), "system" | "user" | "assistant" | "tool") {
+                    role = "user".to_string();
+                }
                 let empty = Value::String(String::new());
-                messages.push(json!({"role":role,"content":as_text(obj.get("content").unwrap_or(&empty))}));
+                messages.push(
+                    json!({"role":role,"content":as_text(obj.get("content").unwrap_or(&empty))}),
+                );
             }
             "input_text" | "output_text" | "text" => {
                 flush_pending(&mut messages, &mut pending_calls);
-                messages.push(json!({"role":"user","content":as_text(&Value::Object(obj.clone()))}));
+                messages
+                    .push(json!({"role":"user","content":as_text(&Value::Object(obj.clone()))}));
             }
             "input_image" => {
                 flush_pending(&mut messages, &mut pending_calls);
                 let image_url = obj.get("image_url").cloned().unwrap_or_else(|| {
-                    obj.get("url").and_then(Value::as_str).map(|u| json!(u)).unwrap_or(Value::Null)
+                    obj.get("url")
+                        .and_then(Value::as_str)
+                        .map(|u| json!(u))
+                        .unwrap_or(Value::Null)
                 });
-                let image_url = if image_url.is_object() { image_url } else { json!({"url": image_url}) };
-                messages.push(json!({"role":"user","content":[{"type":"image_url","image_url":image_url}]}));
+                let image_url = if image_url.is_object() {
+                    image_url
+                } else {
+                    json!({"url": image_url})
+                };
+                messages.push(
+                    json!({"role":"user","content":[{"type":"image_url","image_url":image_url}]}),
+                );
             }
             "input_file" => {
                 flush_pending(&mut messages, &mut pending_calls);
@@ -259,7 +333,10 @@ fn extract_request_with_context(body: &Value, context: &ToolContext) -> Result<(
 }
 
 pub fn merge_new_messages(base: &[Value], incoming: &[Value]) -> Vec<Value> {
-    base.iter().cloned().chain(incoming.iter().cloned()).collect()
+    base.iter()
+        .cloned()
+        .chain(incoming.iter().cloned())
+        .collect()
 }
 
 pub fn normalize_upstream_roles(messages: &[Value]) -> Vec<Value> {
@@ -272,10 +349,15 @@ pub fn normalize_upstream_roles(messages: &[Value]) -> Vec<Value> {
         }
         if item.get("role").and_then(Value::as_str) == Some("system") {
             let text = item.get("content").map(as_text).unwrap_or_default();
-            if !text.is_empty() { system_chunks.push(text); }
+            if !text.is_empty() {
+                system_chunks.push(text);
+            }
             continue;
         }
-        if !matches!(item.get("role").and_then(Value::as_str), Some("user" | "assistant" | "tool")) {
+        if !matches!(
+            item.get("role").and_then(Value::as_str),
+            Some("user" | "assistant" | "tool")
+        ) {
             item["role"] = Value::String("user".to_string());
         }
         rest.push(item);
@@ -289,23 +371,44 @@ pub fn normalize_upstream_roles(messages: &[Value]) -> Vec<Value> {
     }
 }
 
-pub fn repair_history(messages: &[Value], tool_outputs: Option<&[Value]>) -> Result<Vec<Value>, HistoryError> {
+pub fn repair_history(
+    messages: &[Value],
+    tool_outputs: Option<&[Value]>,
+) -> Result<Vec<Value>, HistoryError> {
     let mut repaired = messages.to_vec();
-    let Some(outputs) = tool_outputs else { return Ok(repaired); };
+    let Some(outputs) = tool_outputs else {
+        return Ok(repaired);
+    };
     let pending: std::collections::HashSet<String> = repaired
         .iter()
         .filter(|m| m.get("role").and_then(Value::as_str) == Some("assistant"))
-        .flat_map(|m| m.get("tool_calls").and_then(Value::as_array).into_iter().flatten())
-        .filter_map(|call| call.get("id").and_then(Value::as_str).map(ToString::to_string))
+        .flat_map(|m| {
+            m.get("tool_calls")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|call| {
+            call.get("id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
         .collect();
     let mut seen = std::collections::HashSet::new();
     for output in outputs {
-        let call_id = output.get("tool_call_id").and_then(Value::as_str).unwrap_or("");
+        let call_id = output
+            .get("tool_call_id")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if !pending.contains(call_id) {
-            return Err(HistoryError::Invalid(format!("unknown tool call id: {call_id}")));
+            return Err(HistoryError::Invalid(format!(
+                "unknown tool call id: {call_id}"
+            )));
         }
         if !seen.insert(call_id.to_string()) {
-            return Err(HistoryError::Invalid(format!("duplicate tool output: {call_id}")));
+            return Err(HistoryError::Invalid(format!(
+                "duplicate tool output: {call_id}"
+            )));
         }
         repaired.push(output.clone());
     }
@@ -324,12 +427,15 @@ fn convert_tool_choice(choice: Option<&Value>, context: &ToolContext) -> Option<
     }
     if matches!(kind, "function" | "tool") {
         let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
-        let chat_name = context.chat_name_for_response_function(name, obj.get("namespace").and_then(Value::as_str));
+        let chat_name = context
+            .chat_name_for_response_function(name, obj.get("namespace").and_then(Value::as_str));
         return Some(json!({"type":"function","function":{"name":chat_name}}));
     }
     if kind == "custom" {
         let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
-        return Some(json!({"type":"function","function":{"name":context.chat_name_for_response_function(name, None)}}));
+        return Some(
+            json!({"type":"function","function":{"name":context.chat_name_for_response_function(name, None)}}),
+        );
     }
     if kind == "tool_search" {
         return Some(json!({"type":"function","function":{"name":"tool_search"}}));

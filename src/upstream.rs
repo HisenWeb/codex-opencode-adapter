@@ -24,7 +24,11 @@ pub struct OpenCodeGoClient {
 }
 
 impl OpenCodeGoClient {
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, timeout_seconds: u64) -> anyhow::Result<Self> {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        timeout_seconds: u64,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             api_key: api_key.into(),
@@ -35,15 +39,20 @@ impl OpenCodeGoClient {
     }
 
     pub async fn models(&self) -> Result<Value, UpstreamError> {
-        self.request_json(reqwest::Method::GET, "/models", None).await
+        self.request_json(reqwest::Method::GET, "/models", None)
+            .await
     }
 
     pub async fn chat(&self, mut payload: Value) -> Result<Value, UpstreamError> {
         payload["stream"] = Value::Bool(false);
-        self.request_json(reqwest::Method::POST, "/chat/completions", Some(payload)).await
+        self.request_json(reqwest::Method::POST, "/chat/completions", Some(payload))
+            .await
     }
 
-    pub async fn chat_stream(&self, mut payload: Value) -> Result<impl Stream<Item = Result<Bytes, reqwest::Error>>, UpstreamError> {
+    pub async fn chat_stream(
+        &self,
+        mut payload: Value,
+    ) -> Result<impl Stream<Item = Result<Bytes, reqwest::Error>>, UpstreamError> {
         payload["stream"] = Value::Bool(true);
         let response = self
             .client
@@ -59,7 +68,12 @@ impl OpenCodeGoClient {
         Ok(response.bytes_stream())
     }
 
-    async fn request_json(&self, method: reqwest::Method, path: &str, payload: Option<Value>) -> Result<Value, UpstreamError> {
+    async fn request_json(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        payload: Option<Value>,
+    ) -> Result<Value, UpstreamError> {
         let mut request = self
             .client
             .request(method, format!("{}{}", self.base_url, path))
@@ -82,7 +96,12 @@ impl OpenCodeGoClient {
 
     fn headers(&self, accept: &'static str) -> Result<reqwest::header::HeaderMap, UpstreamError> {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(AUTHORIZATION, format!("Bearer {}", self.api_key).parse().map_err(|e: http::header::InvalidHeaderValue| UpstreamError::Invalid(e.to_string()))?);
+        headers.insert(
+            AUTHORIZATION,
+            format!("Bearer {}", self.api_key).parse().map_err(
+                |e: http::header::InvalidHeaderValue| UpstreamError::Invalid(e.to_string()),
+            )?,
+        );
         headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         headers.insert(ACCEPT, accept.parse().unwrap());
         headers.insert(USER_AGENT, "codex-opencode-adapter-rs/0.2".parse().unwrap());
@@ -96,7 +115,10 @@ impl OpenCodeGoClient {
             .ok()
             .and_then(|v| extract_error_message(&v))
             .unwrap_or(body);
-        UpstreamError::Http { status, message: message.chars().take(2000).collect() }
+        UpstreamError::Http {
+            status,
+            message: message.chars().take(2000).collect(),
+        }
     }
 }
 
@@ -107,7 +129,8 @@ impl OpenCodeGoClient {
 /// 4. Bare string body
 pub fn extract_error_message(value: &Value) -> Option<String> {
     let source = value.get("error").unwrap_or(value);
-    source.get("message")
+    source
+        .get("message")
         .or_else(|| source.get("detail"))
         .or_else(|| source.get("status_msg"))
         .or_else(|| source.pointer("/base_resp/status_msg"))
@@ -116,7 +139,11 @@ pub fn extract_error_message(value: &Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
-pub fn parse_chat_sse_bytes(buffer: &mut String, utf8_remainder: &mut Vec<u8>, bytes: &[u8]) -> Vec<String> {
+pub fn parse_chat_sse_bytes(
+    buffer: &mut String,
+    utf8_remainder: &mut Vec<u8>,
+    bytes: &[u8],
+) -> Vec<String> {
     // Handle UTF-8 characters split across TCP chunk boundaries:
     // prepend any leftover incomplete bytes from the previous chunk.
     let mut combined = Vec::with_capacity(utf8_remainder.len() + bytes.len());
@@ -176,7 +203,11 @@ pub fn sse_data_from_block(block: &str) -> Option<String> {
             data.push(rest.trim_start().to_string());
         }
     }
-    if data.is_empty() { None } else { Some(data.join("\n")) }
+    if data.is_empty() {
+        None
+    } else {
+        Some(data.join("\n"))
+    }
 }
 
 #[cfg(test)]
@@ -267,7 +298,7 @@ mod tests {
         let mut remainder = Vec::new();
 
         // First chunk: incomplete block (no \n\n terminator)
-        let blocks1 = parse_chat_sse_bytes(&mut buf, &mut remainder, b"data: {\"partial\":" );
+        let blocks1 = parse_chat_sse_bytes(&mut buf, &mut remainder, b"data: {\"partial\":");
         assert_eq!(blocks1.len(), 0);
 
         // Second chunk: completes the block
@@ -288,7 +319,10 @@ mod tests {
 
         let blocks1 = parse_chat_sse_bytes(&mut buf, &mut remainder, chunk1);
         assert_eq!(blocks1.len(), 0);
-        assert!(!remainder.is_empty(), "incomplete UTF-8 bytes should be in remainder");
+        assert!(
+            !remainder.is_empty(),
+            "incomplete UTF-8 bytes should be in remainder"
+        );
 
         let blocks2 = parse_chat_sse_bytes(&mut buf, &mut remainder, chunk2);
         assert_eq!(blocks2.len(), 1);

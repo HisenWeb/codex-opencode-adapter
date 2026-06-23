@@ -12,7 +12,8 @@ fn tool_search_uses_query_limit_schema() {
         "tools": [{"type":"tool_search"}],
         "stream": true
     });
-    let (payload, _messages, _reverse, tool_ctx) = build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
+    let (payload, _messages, _reverse, tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
     let tool = &payload["tools"][0]["function"];
     assert_eq!(tool["name"], "tool_search");
     assert_eq!(tool["parameters"]["properties"]["query"]["type"], "string");
@@ -31,19 +32,23 @@ fn nonstream_tool_search_restores_response_item() {
         "tools": [{"type":"tool_search"}],
         "stream": false
     });
-    let (_payload, messages, _reverse, tool_ctx) = build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
 
     let mut message = Map::new();
     message.insert("role".to_string(), json!("assistant"));
     message.insert("content".to_string(), Value::Null);
-    message.insert(tool_calls_key(), json!([{
-        "id": "call_search",
-        "type": "function",
-        "function": {
-            "name": "tool_search",
-            "arguments": "{\"query\":\"filesystem\",\"limit\":3}"
-        }
-    }]));
+    message.insert(
+        tool_calls_key(),
+        json!([{
+            "id": "call_search",
+            "type": "function",
+            "function": {
+                "name": "tool_search",
+                "arguments": "{\"query\":\"filesystem\",\"limit\":3}"
+            }
+        }]),
+    );
 
     let upstream = json!({
         "id": "chatcmpl_test",
@@ -65,7 +70,10 @@ fn nonstream_tool_search_restores_response_item() {
     )
     .unwrap();
     let output = response["output"].as_array().unwrap();
-    let item = output.iter().find(|item| item["type"] == "tool_search_call").unwrap();
+    let item = output
+        .iter()
+        .find(|item| item["type"] == "tool_search_call")
+        .unwrap();
     assert_eq!(item["call_id"], "call_search");
     assert_eq!(item["arguments"]["query"], "filesystem");
     assert_eq!(item["arguments"]["limit"], 3);
@@ -81,7 +89,8 @@ fn streaming_tool_search_does_not_emit_custom_input_events() {
         "tools": [{"type":"tool_search"}],
         "stream": true
     });
-    let (_payload, messages, _reverse, tool_ctx) = build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
     let events = Arc::new(Mutex::new(Vec::<(String, Value)>::new()));
     let stored = Arc::new(Mutex::new(Vec::<StoredResponse>::new()));
     let events_for_emit = Arc::clone(&events);
@@ -97,25 +106,50 @@ fn streaming_tool_search_does_not_emit_custom_input_events() {
             Ok(())
         }),
         Box::new(move |event, data| {
-            events_for_emit.lock().unwrap().push((event.to_string(), data));
+            events_for_emit
+                .lock()
+                .unwrap()
+                .push((event.to_string(), data));
             Ok(())
         }),
     );
     assembler.start().unwrap();
     assembler
-        .accept(&stream_tool_chunk(0, Some("call_search"), Some("tool_search"), Some("{\"query\":"), None))
+        .accept(&stream_tool_chunk(
+            0,
+            Some("call_search"),
+            Some("tool_search"),
+            Some("{\"query\":"),
+            None,
+        ))
         .unwrap();
     assembler
-        .accept(&stream_tool_chunk(0, None, None, Some("\"filesystem\"}"), Some("tool_calls")))
+        .accept(&stream_tool_chunk(
+            0,
+            None,
+            None,
+            Some("\"filesystem\"}"),
+            Some("tool_calls"),
+        ))
         .unwrap();
     let response = assembler.finalize().unwrap();
     let events = events.lock().unwrap();
-    assert!(!events.iter().any(|(name, _)| name.starts_with("response.custom_tool_call_input")));
-    assert!(events.iter().any(|(name, _)| name == "response.function_call_arguments.done"));
-    let done = events.iter().find(|(name, _)| name == "response.function_call_arguments.done").unwrap();
+    assert!(!events
+        .iter()
+        .any(|(name, _)| name.starts_with("response.custom_tool_call_input")));
+    assert!(events
+        .iter()
+        .any(|(name, _)| name == "response.function_call_arguments.done"));
+    let done = events
+        .iter()
+        .find(|(name, _)| name == "response.function_call_arguments.done")
+        .unwrap();
     assert_eq!(done.1["arguments"], "{\"query\":\"filesystem\"}");
     let output = response["output"].as_array().unwrap();
-    let item = output.iter().find(|item| item["type"] == "tool_search_call").unwrap();
+    let item = output
+        .iter()
+        .find(|item| item["type"] == "tool_search_call")
+        .unwrap();
     assert_eq!(item["arguments"]["query"], "filesystem");
 }
 
@@ -127,7 +161,8 @@ fn streaming_custom_tool_buffers_split_arguments_until_finalize() {
         "tools": [{"type":"custom","name":"custom.echo"}],
         "stream": true
     });
-    let (_payload, messages, _reverse, tool_ctx) = build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
     let events = Arc::new(Mutex::new(Vec::<(String, Value)>::new()));
     let stored = Arc::new(Mutex::new(Vec::<StoredResponse>::new()));
     let events_for_emit = Arc::clone(&events);
@@ -143,21 +178,38 @@ fn streaming_custom_tool_buffers_split_arguments_until_finalize() {
             Ok(())
         }),
         Box::new(move |event, data| {
-            events_for_emit.lock().unwrap().push((event.to_string(), data));
+            events_for_emit
+                .lock()
+                .unwrap()
+                .push((event.to_string(), data));
             Ok(())
         }),
     );
     assembler.start().unwrap();
     let first = format!("{{\"{}\":", "input");
     assembler
-        .accept(&stream_tool_chunk(0, Some("call_custom"), Some("custom_echo"), Some(&first), None))
+        .accept(&stream_tool_chunk(
+            0,
+            Some("call_custom"),
+            Some("custom_echo"),
+            Some(&first),
+            None,
+        ))
         .unwrap();
     {
         let events = events.lock().unwrap();
-        assert!(!events.iter().any(|(name, _)| name == "response.custom_tool_call_input.delta"));
+        assert!(!events
+            .iter()
+            .any(|(name, _)| name == "response.custom_tool_call_input.delta"));
     }
     assembler
-        .accept(&stream_tool_chunk(0, None, None, Some("\"hello world\"}"), Some("tool_calls")))
+        .accept(&stream_tool_chunk(
+            0,
+            None,
+            None,
+            Some("\"hello world\"}"),
+            Some("tool_calls"),
+        ))
         .unwrap();
     let response = assembler.finalize().unwrap();
     let events = events.lock().unwrap();
@@ -167,10 +219,16 @@ fn streaming_custom_tool_buffers_split_arguments_until_finalize() {
         .collect::<Vec<_>>();
     assert_eq!(deltas.len(), 1);
     assert_eq!(deltas[0].1["delta"], "hello world");
-    let done = events.iter().find(|(name, _)| name == "response.custom_tool_call_input.done").unwrap();
+    let done = events
+        .iter()
+        .find(|(name, _)| name == "response.custom_tool_call_input.done")
+        .unwrap();
     assert_eq!(done.1["input"], "hello world");
     let output = response["output"].as_array().unwrap();
-    let item = output.iter().find(|item| item["type"] == "custom_tool_call").unwrap();
+    let item = output
+        .iter()
+        .find(|item| item["type"] == "custom_tool_call")
+        .unwrap();
     assert_eq!(item["input"], "hello world");
 }
 
@@ -178,7 +236,13 @@ fn tool_calls_key() -> String {
     ["tool", "calls"].join("_")
 }
 
-fn stream_tool_chunk(index: u64, id: Option<&str>, name: Option<&str>, arguments: Option<&str>, finish_reason: Option<&str>) -> Value {
+fn stream_tool_chunk(
+    index: u64,
+    id: Option<&str>,
+    name: Option<&str>,
+    arguments: Option<&str>,
+    finish_reason: Option<&str>,
+) -> Value {
     let mut function = Map::new();
     if let Some(name) = name {
         function.insert("name".to_string(), json!(name));

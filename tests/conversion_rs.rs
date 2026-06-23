@@ -40,10 +40,17 @@ fn rust_request_transform_maps_tools_and_tool_choice() {
         "tool_choice": {"type":"function","name":"mcp.read"},
         "stream": true
     });
-    let (payload, messages, reverse, _tool_ctx) = build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
-    assert_eq!(messages[0], json!({"role":"system","content":"System.\n\nDev."}));
+    let (payload, messages, reverse, _tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-pro", None, json!({})).unwrap();
+    assert_eq!(
+        messages[0],
+        json!({"role":"system","content":"System.\n\nDev."})
+    );
     assert_eq!(payload["stream_options"], json!({"include_usage": true}));
-    assert_eq!(payload["tool_choice"], json!({"type":"function","function":{"name":"mcp_read"}}));
+    assert_eq!(
+        payload["tool_choice"],
+        json!({"type":"function","function":{"name":"mcp_read"}})
+    );
     assert_eq!(reverse.get("mcp_read").unwrap(), "mcp.read");
 }
 
@@ -58,11 +65,15 @@ fn rust_input_image_with_url_string() {
             {"type": "message", "role": "user", "content": "What is this?"}
         ]
     });
-    let (_payload, messages, _reverse, _tool_ctx) = build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, _tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
     assert_eq!(messages[0]["role"], "user");
     let content = messages[0]["content"].as_array().unwrap();
     assert_eq!(content[0]["type"], "image_url");
-    assert_eq!(content[0]["image_url"]["url"], "https://example.com/cat.png");
+    assert_eq!(
+        content[0]["image_url"]["url"],
+        "https://example.com/cat.png"
+    );
     assert_eq!(messages[1]["role"], "user");
     assert_eq!(messages[1]["content"], "What is this?");
 }
@@ -78,10 +89,14 @@ fn rust_input_image_with_image_url_object() {
             }
         ]
     });
-    let (_payload, messages, _reverse, _tool_ctx) = build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, _tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
     let content = messages[0]["content"].as_array().unwrap();
     assert_eq!(content[0]["type"], "image_url");
-    assert_eq!(content[0]["image_url"]["url"], "https://example.com/img.png");
+    assert_eq!(
+        content[0]["image_url"]["url"],
+        "https://example.com/img.png"
+    );
     assert_eq!(content[0]["image_url"]["detail"], "high");
 }
 
@@ -96,7 +111,8 @@ fn rust_input_file() {
             }
         ]
     });
-    let (_payload, messages, _reverse, _tool_ctx) = build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, _tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
     let content = messages[0]["content"].as_array().unwrap();
     assert_eq!(content[0]["type"], "file");
     assert_eq!(content[0]["file"]["filename"], "doc.pdf");
@@ -111,7 +127,8 @@ fn rust_input_file_fallback_to_object() {
             {"type": "input_file", "filename": "report.txt", "content": "text"}
         ]
     });
-    let (_payload, messages, _reverse, _tool_ctx) = build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, _tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
     let content = messages[0]["content"].as_array().unwrap();
     assert_eq!(content[0]["type"], "file");
     assert_eq!(content[0]["file"]["filename"], "report.txt");
@@ -128,7 +145,8 @@ fn rust_input_audio() {
             }
         ]
     });
-    let (_payload, messages, _reverse, _tool_ctx) = build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
+    let (_payload, messages, _reverse, _tool_ctx) =
+        build_chat_payload(&body, "deepseek-v4-flash", None, json!({})).unwrap();
     let content = messages[0]["content"].as_array().unwrap();
     assert_eq!(content[0]["type"], "input_audio");
     assert_eq!(content[0]["input_audio"]["data"], "base64audio");

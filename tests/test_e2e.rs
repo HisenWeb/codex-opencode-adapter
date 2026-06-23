@@ -31,9 +31,15 @@ struct MockState {
 
 /// Starts a mock OpenCode Go upstream server on a random port.
 /// Returns (addr, join_handle, received_payloads_accessor).
-async fn start_mock_upstream() -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) {
+async fn start_mock_upstream() -> (
+    SocketAddr,
+    tokio::task::JoinHandle<()>,
+    Arc<Mutex<Vec<Value>>>,
+) {
     let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
-    let state = MockState { received: received.clone() };
+    let state = MockState {
+        received: received.clone(),
+    };
 
     let app = Router::new()
         .route("/chat/completions", post(mock_chat))
@@ -57,7 +63,10 @@ async fn mock_chat(
     // Record the received payload.
     state.received.lock().await.push(payload.clone());
 
-    let is_stream = payload.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let is_stream = payload
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let model = payload
         .get("model")
         .and_then(Value::as_str)
@@ -95,7 +104,9 @@ fn mock_completion(model: String) -> Value {
     })
 }
 
-fn mock_sse_stream(model: String) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>> {
+fn mock_sse_stream(
+    model: String,
+) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>> {
     let chunks = vec![
         json!({
             "id": "chatcmpl-mock-002",
@@ -271,7 +282,10 @@ async fn mock_chat_with_reasoning(
         .and_then(Value::as_str)
         .unwrap_or("unknown")
         .to_string();
-    let is_stream = payload.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let is_stream = payload
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     if is_stream {
         let stream = mock_reasoning_sse_stream(model);
@@ -307,7 +321,10 @@ async fn mock_chat_with_tool_call(
         .and_then(Value::as_str)
         .unwrap_or("unknown")
         .to_string();
-    let is_stream = payload.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let is_stream = payload
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     if is_stream {
         let stream = mock_tool_call_sse_stream(model);
@@ -438,9 +455,15 @@ fn adapter_url(addr: SocketAddr, path: &str) -> String {
 // ────────────────────────────────────────────────────────────
 
 /// Start mock upstream that handles reasoning responses.
-async fn start_mock_upstream_reasoning() -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) {
+async fn start_mock_upstream_reasoning() -> (
+    SocketAddr,
+    tokio::task::JoinHandle<()>,
+    Arc<Mutex<Vec<Value>>>,
+) {
     let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
-    let state = MockState { received: received.clone() };
+    let state = MockState {
+        received: received.clone(),
+    };
 
     let app = Router::new()
         .route("/chat/completions", post(mock_chat_with_reasoning))
@@ -457,9 +480,15 @@ async fn start_mock_upstream_reasoning() -> (SocketAddr, tokio::task::JoinHandle
 }
 
 /// Start mock upstream that handles tool_call responses.
-async fn start_mock_upstream_tool_call() -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) {
+async fn start_mock_upstream_tool_call() -> (
+    SocketAddr,
+    tokio::task::JoinHandle<()>,
+    Arc<Mutex<Vec<Value>>>,
+) {
     let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
-    let state = MockState { received: received.clone() };
+    let state = MockState {
+        received: received.clone(),
+    };
 
     let app = Router::new()
         .route("/chat/completions", post(mock_chat_with_tool_call))
@@ -476,9 +505,15 @@ async fn start_mock_upstream_tool_call() -> (SocketAddr, tokio::task::JoinHandle
 }
 
 /// Start mock upstream that returns HTTP 500 errors.
-async fn start_mock_upstream_error() -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) {
+async fn start_mock_upstream_error() -> (
+    SocketAddr,
+    tokio::task::JoinHandle<()>,
+    Arc<Mutex<Vec<Value>>>,
+) {
     let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
-    let state = MockState { received: received.clone() };
+    let state = MockState {
+        received: received.clone(),
+    };
 
     let app = Router::new()
         .route("/chat/completions", post(mock_chat_error))
@@ -495,9 +530,15 @@ async fn start_mock_upstream_error() -> (SocketAddr, tokio::task::JoinHandle<()>
 }
 
 /// Start mock upstream that sends error chunk in stream.
-async fn start_mock_upstream_stream_error() -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) {
+async fn start_mock_upstream_stream_error() -> (
+    SocketAddr,
+    tokio::task::JoinHandle<()>,
+    Arc<Mutex<Vec<Value>>>,
+) {
     let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
-    let state = MockState { received: received.clone() };
+    let state = MockState {
+        received: received.clone(),
+    };
 
     let app = Router::new()
         .route("/chat/completions", post(mock_chat_stream_error))
@@ -586,7 +627,11 @@ async fn test_e2e_nonstreaming_text() {
 
     // Should have a message item.
     let message_items: Vec<_> = output.iter().filter(|o| o["type"] == "message").collect();
-    assert_eq!(message_items.len(), 1, "should have exactly one message item");
+    assert_eq!(
+        message_items.len(),
+        1,
+        "should have exactly one message item"
+    );
 
     // Content should contain mock response.
     let content_text: String = message_items[0]["content"]
@@ -595,10 +640,16 @@ async fn test_e2e_nonstreaming_text() {
         .iter()
         .filter_map(|c| c["text"].as_str())
         .collect();
-    assert!(content_text.contains("Hello from mock!"), "content should contain mock response text");
+    assert!(
+        content_text.contains("Hello from mock!"),
+        "content should contain mock response text"
+    );
 
     // Model field should be present.
-    assert!(body.get("model").is_some(), "response must have model field");
+    assert!(
+        body.get("model").is_some(),
+        "response must have model field"
+    );
 
     // Usage should be present.
     assert!(body.get("usage").is_some(), "response must have usage");
@@ -631,7 +682,10 @@ async fn test_e2e_streaming_text() {
         .iter()
         .filter(|(name, _)| name == "response.output_text.delta")
         .collect();
-    assert!(!text_deltas.is_empty(), "should have output_text.delta events");
+    assert!(
+        !text_deltas.is_empty(),
+        "should have output_text.delta events"
+    );
 
     // Should have a response.completed terminal event.
     let completed = events.iter().find(|(name, _)| name == "response.completed");
@@ -639,7 +693,10 @@ async fn test_e2e_streaming_text() {
 
     // Final completed event should have output.
     let completed_data = &completed.unwrap().1;
-    assert!(completed_data.get("response").is_some(), "completed event should have response");
+    assert!(
+        completed_data.get("response").is_some(),
+        "completed event should have response"
+    );
 }
 
 #[tokio::test]
@@ -665,7 +722,11 @@ async fn test_e2e_nonstreaming_with_reasoning() {
 
     // Should have a reasoning item.
     let reasoning_items: Vec<_> = output.iter().filter(|o| o["type"] == "reasoning").collect();
-    assert_eq!(reasoning_items.len(), 1, "should have exactly one reasoning item");
+    assert_eq!(
+        reasoning_items.len(),
+        1,
+        "should have exactly one reasoning item"
+    );
 
     // Reasoning content should contain expected text.
     // Note: reasoning_item uses "summary" field, not "content".
@@ -675,11 +736,18 @@ async fn test_e2e_nonstreaming_with_reasoning() {
         .iter()
         .filter_map(|c| c["text"].as_str())
         .collect();
-    assert!(reasoning_summary.contains("Let me think..."), "reasoning summary should contain expected text");
+    assert!(
+        reasoning_summary.contains("Let me think..."),
+        "reasoning summary should contain expected text"
+    );
 
     // Should also have a message item after reasoning.
     let message_items: Vec<_> = output.iter().filter(|o| o["type"] == "message").collect();
-    assert_eq!(message_items.len(), 1, "should have exactly one message item");
+    assert_eq!(
+        message_items.len(),
+        1,
+        "should have exactly one message item"
+    );
 }
 
 #[tokio::test]
@@ -708,14 +776,20 @@ async fn test_e2e_streaming_with_reasoning() {
         .iter()
         .filter(|(name, _)| name == "response.reasoning_summary_text.delta")
         .collect();
-    assert!(!reasoning_deltas.is_empty(), "should have reasoning_summary_text.delta events");
+    assert!(
+        !reasoning_deltas.is_empty(),
+        "should have reasoning_summary_text.delta events"
+    );
 
     // Should have output_text delta events for the content.
     let text_deltas: Vec<_> = events
         .iter()
         .filter(|(name, _)| name == "response.output_text.delta")
         .collect();
-    assert!(!text_deltas.is_empty(), "should have output_text.delta events");
+    assert!(
+        !text_deltas.is_empty(),
+        "should have output_text.delta events"
+    );
 
     // Should have response.completed.
     assert!(
@@ -752,15 +826,34 @@ async fn test_e2e_nonstreaming_tool_call() {
     let output = body["output"].as_array().unwrap();
 
     // Should have a function_call item.
-    let tool_items: Vec<_> = output.iter().filter(|o| o["type"] == "function_call").collect();
-    assert_eq!(tool_items.len(), 1, "should have exactly one function_call item");
+    let tool_items: Vec<_> = output
+        .iter()
+        .filter(|o| o["type"] == "function_call")
+        .collect();
+    assert_eq!(
+        tool_items.len(),
+        1,
+        "should have exactly one function_call item"
+    );
 
     let tool = &tool_items[0];
-    assert_eq!(tool["name"].as_str().unwrap(), "get_weather", "tool name should match");
-    assert_eq!(tool["call_id"].as_str().unwrap(), "call_abc", "call_id should match");
+    assert_eq!(
+        tool["name"].as_str().unwrap(),
+        "get_weather",
+        "tool name should match"
+    );
+    assert_eq!(
+        tool["call_id"].as_str().unwrap(),
+        "call_abc",
+        "call_id should match"
+    );
 
     let args: Value = serde_json::from_str(tool["arguments"].as_str().unwrap()).unwrap();
-    assert_eq!(args["city"].as_str().unwrap(), "Tokyo", "arguments should contain city");
+    assert_eq!(
+        args["city"].as_str().unwrap(),
+        "Tokyo",
+        "arguments should contain city"
+    );
 }
 
 #[tokio::test]
@@ -795,21 +888,31 @@ async fn test_e2e_streaming_tool_call() {
         .iter()
         .filter(|(name, _)| name == "response.output_item.added")
         .collect();
-    assert!(!added_events.is_empty(), "should have output_item.added events");
+    assert!(
+        !added_events.is_empty(),
+        "should have output_item.added events"
+    );
 
     // Should have function_call_arguments.delta events.
     let arg_deltas: Vec<_> = events
         .iter()
         .filter(|(name, _)| name == "response.function_call_arguments.delta")
         .collect();
-    assert!(!arg_deltas.is_empty(), "should have function_call_arguments.delta events");
+    assert!(
+        !arg_deltas.is_empty(),
+        "should have function_call_arguments.delta events"
+    );
 
     // Should have function_call_arguments.done with complete args.
     let arg_done: Vec<_> = events
         .iter()
         .filter(|(name, _)| name == "response.function_call_arguments.done")
         .collect();
-    assert_eq!(arg_done.len(), 1, "should have exactly one function_call_arguments.done");
+    assert_eq!(
+        arg_done.len(),
+        1,
+        "should have exactly one function_call_arguments.done"
+    );
     let done_args = &arg_done[0].1;
     assert!(
         done_args["arguments"].as_str().unwrap().contains("Tokyo"),
@@ -841,14 +944,21 @@ async fn test_e2e_upstream_http_error() {
         .unwrap();
 
     // UpstreamError::Http preserves the upstream status code.
-    assert_eq!(resp.status(), 500, "upstream HTTP error status should be preserved");
+    assert_eq!(
+        resp.status(),
+        500,
+        "upstream HTTP error status should be preserved"
+    );
     let body: Value = resp.json().await.unwrap();
     assert!(
         body["error"]["type"].as_str().unwrap() == "upstream_error",
         "error type should be upstream_error"
     );
     assert!(
-        body["error"]["message"].as_str().unwrap().contains("upstream internal error"),
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("upstream internal error"),
         "error message should contain upstream message"
     );
 }
@@ -870,13 +980,20 @@ async fn test_e2e_upstream_stream_error() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 200, "streaming errors come through the SSE stream, not HTTP status");
+    assert_eq!(
+        resp.status(),
+        200,
+        "streaming errors come through the SSE stream, not HTTP status"
+    );
     let body_text = resp.text().await.unwrap();
     let events = parse_sse_events(&body_text);
 
     // Should have a response.failed event.
     let failed = events.iter().find(|(name, _)| name == "response.failed");
-    assert!(failed.is_some(), "should have response.failed event for stream error");
+    assert!(
+        failed.is_some(),
+        "should have response.failed event for stream error"
+    );
 }
 
 #[tokio::test]
@@ -901,7 +1018,11 @@ async fn test_e2e_request_payload_shape() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let payloads = received.lock().await;
-    assert_eq!(payloads.len(), 1, "mock should have received exactly one payload");
+    assert_eq!(
+        payloads.len(),
+        1,
+        "mock should have received exactly one payload"
+    );
 
     let payload = &payloads[0];
 
@@ -924,7 +1045,11 @@ async fn test_e2e_request_payload_shape() {
     );
 
     // stream should be false (adapter forces it).
-    assert_eq!(payload["stream"].as_bool().unwrap(), false, "stream should be false for non-streaming");
+    assert_eq!(
+        payload["stream"].as_bool().unwrap(),
+        false,
+        "stream should be false for non-streaming"
+    );
 }
 
 #[tokio::test]
@@ -956,7 +1081,9 @@ async fn test_e2e_request_payload_streaming_shape() {
 
     // stream_options should include_usage.
     assert_eq!(
-        payload["stream_options"]["include_usage"].as_bool().unwrap(),
+        payload["stream_options"]["include_usage"]
+            .as_bool()
+            .unwrap(),
         true,
         "stream_options.include_usage should be true"
     );
@@ -1088,7 +1215,13 @@ async fn test_e2e_real_smoke() {
     assert_eq!(resp.status(), 200, "real smoke test should return 200");
     let body: Value = resp.json().await.unwrap();
     let output = body["output"].as_array().unwrap();
-    assert!(!output.is_empty(), "real smoke test output should not be empty");
+    assert!(
+        !output.is_empty(),
+        "real smoke test output should not be empty"
+    );
 
-    eprintln!("Real smoke test passed: {}", serde_json::to_string_pretty(&body).unwrap_or_default());
+    eprintln!(
+        "Real smoke test passed: {}",
+        serde_json::to_string_pretty(&body).unwrap_or_default()
+    );
 }

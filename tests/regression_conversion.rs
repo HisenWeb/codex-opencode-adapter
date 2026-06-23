@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 
-use codex_opencode_adapter::conversion::responses_to_chat::{build_chat_payload, function_output_call_ids};
+use codex_opencode_adapter::conversion::responses_to_chat::{
+    build_chat_payload, function_output_call_ids,
+};
 use codex_opencode_adapter::conversion::stream_chat_to_responses::StreamAssembler;
 use codex_opencode_adapter::conversion::tool_context::ToolContext;
 use serde_json::{json, Value};
@@ -33,8 +35,8 @@ fn build_chat_payload_converts_custom_and_tool_search_calls() {
         ]
     });
 
-    let (_payload, messages, _reverse, _context) = build_chat_payload(&body, "test-model", None, json!({}))
-        .expect("build payload");
+    let (_payload, messages, _reverse, _context) =
+        build_chat_payload(&body, "test-model", None, json!({})).expect("build payload");
 
     let tool_calls = messages
         .iter()
@@ -45,10 +47,16 @@ fn build_chat_payload_converts_custom_and_tool_search_calls() {
 
     assert_eq!(tool_calls[0]["id"], "call_custom");
     assert_eq!(tool_calls[0]["function"]["name"], "shell");
-    assert_eq!(tool_calls[0]["function"]["arguments"], r#"{"input":"ls -la"}"#);
+    assert_eq!(
+        tool_calls[0]["function"]["arguments"],
+        r#"{"input":"ls -la"}"#
+    );
     assert_eq!(tool_calls[1]["id"], "call_search");
     assert_eq!(tool_calls[1]["function"]["name"], "tool_search");
-    assert_eq!(tool_calls[1]["function"]["arguments"], r#"{"query":"gmail"}"#);
+    assert_eq!(
+        tool_calls[1]["function"]["arguments"],
+        r#"{"query":"gmail"}"#
+    );
 }
 
 #[test]
@@ -69,7 +77,10 @@ fn stream_truncated_with_output_can_finalize_as_incomplete() {
             Ok(())
         }),
         Box::new(move |event, payload| {
-            emitted_for_put.lock().expect("emitted lock").push((event.to_string(), payload));
+            emitted_for_put
+                .lock()
+                .expect("emitted lock")
+                .push((event.to_string(), payload));
             Ok(())
         }),
     );
@@ -87,7 +98,13 @@ fn stream_truncated_with_output_can_finalize_as_incomplete() {
     let response = assembler.finalize().expect("finalize response");
 
     assert_eq!(response["status"], "incomplete");
-    assert_eq!(response["incomplete_details"]["reason"], "max_output_tokens");
-    assert_eq!(emitted.lock().expect("emitted lock").last().unwrap().0, "response.incomplete");
+    assert_eq!(
+        response["incomplete_details"]["reason"],
+        "max_output_tokens"
+    );
+    assert_eq!(
+        emitted.lock().expect("emitted lock").last().unwrap().0,
+        "response.incomplete"
+    );
     assert_eq!(stored.lock().expect("stored lock").len(), 1);
 }

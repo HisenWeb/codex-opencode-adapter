@@ -71,7 +71,8 @@ impl StateStore {
         let cutoff = now_ts() - self.ttl_seconds;
         let _guard = self.lock.lock().expect("state lock poisoned");
         let db = self.connect()?;
-        let mut stmt = db.prepare("SELECT payload FROM responses WHERE response_id=?1 AND created_at>=?2")?;
+        let mut stmt =
+            db.prepare("SELECT payload FROM responses WHERE response_id=?1 AND created_at>=?2")?;
         let mut rows = stmt.query(params![response_id, cutoff])?;
         if let Some(row) = rows.next()? {
             let payload: String = row.get(0)?;
@@ -89,12 +90,15 @@ impl StateStore {
         let wanted: std::collections::HashSet<&str> = call_ids.iter().map(String::as_str).collect();
         let _guard = self.lock.lock().expect("state lock poisoned");
         let db = self.connect()?;
-        let mut stmt = db.prepare("SELECT payload FROM responses WHERE created_at>=?1 ORDER BY created_at DESC")?;
+        let mut stmt = db.prepare(
+            "SELECT payload FROM responses WHERE created_at>=?1 ORDER BY created_at DESC",
+        )?;
         let rows = stmt.query_map(params![cutoff], |row| row.get::<_, String>(0))?;
         for row in rows {
             let payload = row?;
             let item: StoredResponse = serde_json::from_str(&payload)?;
-            let pending: std::collections::HashSet<&str> = item.pending_call_ids.iter().map(String::as_str).collect();
+            let pending: std::collections::HashSet<&str> =
+                item.pending_call_ids.iter().map(String::as_str).collect();
             if wanted.is_subset(&pending) {
                 return Ok(Some(item));
             }

@@ -47,7 +47,11 @@ pub fn arguments_text(value: Option<&Value>) -> String {
 pub fn reasoning_text(value: &Value) -> Option<String> {
     // 1. reasoning_content / thinking as plain string
     for key in ["reasoning_content", "thinking"] {
-        if let Some(text) = value.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        if let Some(text) = value
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
             return Some(text.to_string());
         }
     }
@@ -58,7 +62,11 @@ pub fn reasoning_text(value: &Value) -> Option<String> {
         }
         if let Some(obj) = reasoning.as_object() {
             for key in ["content", "text", "summary"] {
-                if let Some(text) = obj.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                if let Some(text) = obj
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
                     return Some(text.to_string());
                 }
             }
@@ -81,7 +89,11 @@ fn extract_reasoning_details_text(value: &Value) -> Option<String> {
                 .iter()
                 .filter_map(|part| {
                     for key in ["text", "content", "summary"] {
-                        if let Some(t) = part.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                        if let Some(t) = part
+                            .get(key)
+                            .and_then(Value::as_str)
+                            .filter(|s| !s.is_empty())
+                        {
                             return Some(t.to_string());
                         }
                     }
@@ -109,7 +121,11 @@ fn extract_reasoning_details_text(value: &Value) -> Option<String> {
 
 fn extract_reasoning_detail_part_text(value: &Value) -> Option<String> {
     for key in ["text", "content", "summary"] {
-        if let Some(text) = value.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        if let Some(text) = value
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
             return Some(text.to_string());
         }
     }
