@@ -27,6 +27,41 @@ Codex subagent
 Codex remains responsible for task roles, sandbox permissions, tool execution,
 review, and deciding whether work is complete.
 
+## Reference implementation scope
+
+This adapter is not a fork of cc-switch and does not attempt to reproduce its
+provider routing, UI, session management, hooks, plugins, status line, model
+pricing, fallback routing, or provider registry.
+
+cc-switch was used only as a behavior reference for protocol compatibility
+around Codex Responses <-> Chat Completions conversion. The relevant reference
+files are:
+
+| cc-switch file | Reference scope in this adapter |
+|---|---|
+| `src-tauri/src/proxy/providers/transform_codex_chat.rs` | Responses request -> Chat payload conversion, including `input_text`, `input_image`, `input_file`, `input_audio`, tool calls, tool outputs, and response history replay |
+| `src-tauri/src/proxy/providers/streaming_codex_chat.rs` | Chat streaming delta -> Responses SSE event lifecycle for text, reasoning, function calls, custom tool calls, tool search, terminal events, and incomplete/failed streams |
+| `src-tauri/src/proxy/providers/transform_opencode_go.rs` | OpenCode Go-specific compatibility details, especially model/reasoning quirks and OpenAI-compatible upstream behavior |
+| `src-tauri/src/proxy/providers/transform_responses.rs` | Responses-format output/event shape, `output_text` items, and image/base64 shape handling used for compatibility checks |
+| `src-tauri/src/proxy/providers/transform.rs` | Anthropic/OpenAI-style content block normalization, especially base64 image source -> `image_url` data URL behavior |
+| `src-tauri/src/proxy/media_sanitizer.rs` | Multimodal capability guard behavior and detection of upstream errors such as `unknown variant image_url, expected text` |
+| `src-tauri/src/proxy/forwarder.rs` | Request/response integration points and reactive multimodal error handling around upstream calls |
+| `src-tauri/src/proxy/providers/models/openai.rs` | OpenAI-compatible Chat content block shapes such as `image_url` |
+
+The implemented Rust equivalents are intentionally narrower:
+
+| Adapter area | Local files |
+|---|---|
+| Responses -> Chat request conversion | `src/conversion/responses_to_chat.rs`, `src/conversion/tool_context.rs`, `src/conversion/multimodal_input.rs` |
+| Chat -> Responses non-stream conversion | `src/conversion/chat_to_responses.rs`, `src/conversion/text.rs` |
+| Chat stream -> Responses stream conversion | `src/conversion/stream_chat_to_responses.rs`, `src/upstream.rs` |
+| OpenCode Go request/response integration | `src/server.rs`, `src/upstream.rs` |
+| Multimodal model capability guard | `src/media_guard.rs` |
+| State replay for tool continuations | `src/state.rs` |
+
+The intended compatibility target is the Codex subagent -> OpenCode Go path, not
+a general-purpose provider aggregation platform.
+
 ## Quick start (Rust)
 
 ```bash
@@ -69,6 +104,11 @@ cargo test
 # Unit tests only
 cargo test --lib
 
+# Conversion regression tests
+cargo test --test conversion_rs
+cargo test --test tool_search_regression
+cargo test --test multimodal_regression
+
 # L2 integration tests (mock upstream, no external dependency)
 cargo test --test test_e2e
 
@@ -80,8 +120,10 @@ OPENCODE_GO_API_KEY="your-key" cargo test --test test_e2e test_e2e_real_smoke --
 
 ```text
 tests/
-├── conversion_rs.rs          # Rust unit tests for conversion modules
-└── test_e2e.rs               # L2 integration tests (mock upstream + real smoke)
+├── conversion_rs.rs             # Rust unit tests for conversion modules
+├── tool_search_regression.rs    # Tool search/custom tool streaming regressions
+├── multimodal_regression.rs     # Multimodal input and guard regressions
+└── test_e2e.rs                  # L2 integration tests (mock upstream + real smoke)
 ```
 
 ## Endpoints
@@ -107,6 +149,32 @@ metadata and logs rather than silently pretending to work.
 
 Reasoning content is retained only in stored chat history so tool continuations
 remain valid. It is not exposed as user-visible chain of thought.
+
+## Multimodal compatibility
+
+The adapter supports request-side multimodal conversion for Codex Responses
+inputs that can be represented in an OpenAI-compatible Chat content array:
+
+- `input_image` -> Chat `image_url`
+- Anthropic-style base64 image source -> Chat `image_url` data URL
+- `input_file` with `file_id` or `file_data` -> Chat `file`
+- `input_audio` -> Chat `input_audio`
+- mixed text/image/file/audio message content arrays
+
+Known text-only models are guarded before upstream dispatch. If a text-only
+model receives image/file/audio input, the adapter returns a valid Responses
+object with `status: failed` and `error.code: unsupported_multimodal_input`
+instead of returning an HTTP 4xx/5xx provider error. For streaming requests, it
+emits `response.created`, `response.in_progress`, `response.failed`, then
+`[DONE]`.
+
+Unknown model capabilities are passed through to OpenCode Go. If the upstream
+returns a multimodal unsupported error, the adapter translates it into the same
+Responses-level failure.
+
+Multimodal output generation is intentionally out of scope for this adapter.
+Image/audio/file generation should be handled by external CLI tools, MCP tools,
+or normal Codex tool calls; this adapter only preserves the protocol chain.
 
 ## Supported models
 
