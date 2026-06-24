@@ -22,7 +22,13 @@ fn streaming_function_tool_accepts_split_id_name_and_arguments() {
         .accept(&stream_tool_chunk(0, None, Some("run"), Some("{\"cmd\":"), None))
         .unwrap();
     assembler
-        .accept(&stream_tool_chunk(0, None, None, Some("\"echo ok\"}"), Some("tool_calls")))
+        .accept(&stream_tool_chunk(
+            0,
+            None,
+            None,
+            Some("\"echo ok\"}"),
+            Some("tool_calls"),
+        ))
         .unwrap();
     let response = assembler.finalize().unwrap();
 
@@ -267,7 +273,7 @@ fn streaming_tool_call_without_name_is_skipped_and_does_not_pollute_state() {
     assert!(response["output"].as_array().unwrap().is_empty());
     let stored = stored.lock().unwrap();
     assert!(stored[0].pending_call_ids.is_empty());
-    assert!(stored[0]["output"].as_array().unwrap().is_empty());
+    assert!(stored[0].output.is_empty());
 
     let events = events.lock().unwrap();
     assert!(!events.iter().any(|(name, data)| {
