@@ -110,6 +110,9 @@ cargo fmt --check
 cargo test --lib
 cargo test --test conversion_rs
 cargo test --test stateless_tool_continuation
+cargo test --test stream_content_tool_buffer
+cargo test --test stream_tool_delta_regression
+cargo test --test nonstream_upstream_error_regression
 cargo test --test tool_search_regression
 cargo test --test multimodal_regression
 cargo test --test test_e2e
@@ -123,9 +126,9 @@ against real Codex subagent traffic before expanding the adapter:
 
 - Some strict reasoning models may require a non-empty `reasoning_content`
   placeholder on assistant messages that contain `tool_calls`.
-- Non-stream upstream errors may need to be wrapped as full Responses
-  `status: failed` objects instead of plain HTTP error objects if Codex treats
-  provider errors as a broken chain.
+- Non-stream upstream errors already return a Responses `status: failed` body,
+  but the adapter currently preserves the upstream HTTP status; real Codex
+  validation must confirm whether non-2xx status breaks the subagent chain.
 - Streaming incomplete termination may need to be verified against Codex's exact
   event expectations.
 - Multimodal output mapping is not implemented until real upstream output shapes
@@ -271,6 +274,8 @@ cargo run
 | `CODEX_OPENCODE_STATE_TTL_SECONDS` | `21600` | State TTL (6 hours) |
 | `CODEX_OPENCODE_TIMEOUT_SECONDS` | `300` | Upstream request timeout |
 | `CODEX_OPENCODE_MAX_REQUEST_BYTES` | `8388608` | Max request body size (8 MB) |
+| `CODEX_OPENCODE_MAX_CONCURRENCY` | `8` | Maximum concurrent upstream requests; read at startup from the environment |
+| `RUST_LOG` | `codex_opencode_adapter=info` | Tracing filter, for example `codex_opencode_adapter=debug` to see continuation diagnostics |
 
 The upstream API key and local client token must be different. The adapter
 never logs either token.
@@ -303,11 +308,14 @@ OPENCODE_GO_API_KEY="your-key" cargo test --test test_e2e test_e2e_real_smoke --
 
 ```text
 tests/
-├── conversion_rs.rs                  # Rust unit tests for conversion modules
-├── stateless_tool_continuation.rs    # Stateless full-history tool continuation regressions
-├── tool_search_regression.rs         # Tool search/custom tool streaming regressions
-├── multimodal_regression.rs          # Multimodal input and guard regressions
-└── test_e2e.rs                       # L2 integration tests (mock upstream + real smoke)
+├── conversion_rs.rs                       # Rust unit tests for conversion modules
+├── stateless_tool_continuation.rs         # Stateless full-history tool continuation regressions
+├── stream_content_tool_buffer.rs          # Streaming content-before-tool buffering regressions
+├── stream_tool_delta_regression.rs        # Streaming tool-call delta assembly regressions
+├── nonstream_upstream_error_regression.rs # Non-stream upstream error failed-response shape regression
+├── tool_search_regression.rs              # Tool search/custom tool streaming regressions
+├── multimodal_regression.rs               # Multimodal input and guard regressions
+└── test_e2e.rs                            # L2 integration tests (mock upstream + real smoke)
 ```
 
 ## Endpoints
@@ -334,6 +342,20 @@ features.
 
 Reasoning content is retained for protocol compatibility. It is not exposed as
 user-visible chain of thought.
+
+## Continuation diagnostics
+
+Set `RUST_LOG=codex_opencode_adapter=debug` to see tool-continuation diagnostics.
+
+The important event names are documented in
+[docs/p1-continuation-diagnostics.md](docs/p1-continuation-diagnostics.md):
+
+- `stored_response_not_found`
+- `tool_history_unique_fallback_hit`
+- `tool_history_call_id_ambiguous`
+- `tool_history_response_ambiguous`
+- `tool_history_call_id_not_found`
+- `stateless_tool_history_bypass_state_lookup`
 
 ## Multimodal compatibility
 

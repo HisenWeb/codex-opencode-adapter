@@ -66,12 +66,14 @@ cargo build --release
 $env:OPENCODE_GO_API_KEY = "<你的 OpenCode Go API Key>"
 $env:CODEX_OPENCODE_LOCAL_TOKEN = "codex-opencode-local"
 $env:CODEX_OPENCODE_PORT = "4010"
+$env:CODEX_OPENCODE_MAX_CONCURRENCY = "8"
 cargo run --release
 ```
 
 - API Key 只放环境变量，不写入仓库。
 - 默认端口为 `4010`，避免与旧 Bridge 的 `4000` 冲突。
 - Bridge 必须保持运行，Codex 子代理才能连接。
+- `CODEX_OPENCODE_MAX_CONCURRENCY` 是最大并发数，默认 `8`。
 
 ## 4. 免费检查
 
@@ -139,18 +141,14 @@ codex-opencode-adapter
 
 ## 8. Reasoning 行为
 
-- DeepSeek V4 Pro/Flash：`low/medium/high/max`。
-- MiMo V2.5/Pro：`low/medium/high`。
-- 支持 reasoning 但没有等级元数据的模型：使用上游默认思考。
-- Bridge 保存隐藏 reasoning 供工具续传，但不输出思维正文。
+当前适配器重点保证输出侧 reasoning 兼容：
 
-查看 Bridge 的 `request_prepared` 日志确认：
+- 提取上游 `reasoning_content`、`thinking`、`reasoning`、`reasoning_details` 字段。
+- 当没有显式 reasoning 字段时，拆分开头的 `<think>...</think>` 块。
+- 保存 reasoning 到内部 chat history，保证工具续传上下文有效。
+- 不向用户可见输出隐藏 reasoning 正文。
 
-```text
-"reasoning_applied":true
-```
-
-不要通过增加复杂提示词来猜测 reasoning 是否生效。
+请求侧 provider-specific reasoning 参数仍需真实 OpenCode Go 验证。不要通过增加复杂提示词来猜测 reasoning 是否生效。
 
 ## 9. 常见故障
 
@@ -180,15 +178,34 @@ Get-NetTCPConnection -State Listen -LocalPort 4010
 检查启动 Bridge 的进程是否设置了 `OPENCODE_GO_API_KEY`。不要在日志或聊天中粘贴
 API Key。
 
-### reasoning 没有应用
-
-查看 `reasoning_reason`。`effort_not_declared_by_model` 表示模型只支持默认思考，
-不是故障。不要为验证等级批量调用全部模型。
-
 ### 工具结果无法续传
 
 保持同一个 Bridge 进程及状态数据库。状态过期或数据库被删除后，应开始新任务，
 不要无限重试旧调用。
+
+需要更细的续传诊断时，用 debug 日志启动：
+
+```powershell
+$env:RUST_LOG = "codex_opencode_adapter=debug"
+cargo run --release
+```
+
+重点看这些事件：
+
+```text
+stored_response_not_found
+tool_history_unique_fallback_hit
+tool_history_call_id_ambiguous
+tool_history_response_ambiguous
+tool_history_call_id_not_found
+stateless_tool_history_bypass_state_lookup
+```
+
+完整说明见 [p1-continuation-diagnostics.md](p1-continuation-diagnostics.md)。
+
+### 非流式上游错误
+
+当前 `/v1/responses` 非流式上游 HTTP 错误会返回 Responses `status: failed` body，同时保留上游 HTTP status。真实 Codex subagent 验证时需要确认非 2xx status 是否会断链。
 
 ## 10. Token 控制纪律
 
