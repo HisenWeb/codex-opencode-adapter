@@ -1,6 +1,7 @@
 use crate::codex_chat_history::{ensure_no_duplicate_call_outputs, validate_chat_tool_history};
 use crate::state::StoredResponse;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -58,25 +59,44 @@ pub fn build_chat_payload(
         })
         .collect::<Vec<_>>();
     let mut messages = if !outputs.is_empty() {
-        let Some(previous) = previous else {
+        if let Some(previous) = previous {
             tracing::debug!(
-                event = "tool_output_orphan",
+                event = "tool_output_adopted",
+                previous_response_id = %previous.response_id,
                 call_ids = ?output_call_ids,
-                "tool outputs have no matching stored response"
+                pending_call_ids = ?previous.pending_call_ids,
+                "tool outputs matched stored response"
             );
-            return Err(HistoryError::Invalid(
-                "tool output has no matching stored response".to_string(),
-            ));
-        };
-        tracing::debug!(
-            event = "tool_output_adopted",
-            previous_response_id = %previous.response_id,
-            call_ids = ?output_call_ids,
-            pending_call_ids = ?previous.pending_call_ids,
-            "tool outputs matched stored response"
-        );
-        let repaired = repair_history(&previous.messages, Some(&outputs))?;
-        merge_new_messages(&repaired, &incoming)
+            let repaired = repair_history(&previous.messages, Some(&outputs))?;
+            merge_new_messages(&repaired, &incoming)
+        } else {
+            match repair_stateless_history(&incoming, &outputs) {
+                Ok(repaired) => {
+                    tracing::debug!(
+                        event = "tool_output_stateless_adopted",
+                        call_ids = ?output_call_ids,
+                        "tool outputs matched tool calls already present in request input"
+                    );
+                    repaired
+                }
+                Err(error)
+                    if error
+                        .to_string()
+                        .contains("no matching stateless tool call") =>
+                {
+                    tracing::debug!(
+                        event = "tool_output_orphan",
+                        call_ids = ?output_call_ids,
+                        reason = %error,
+                        "tool outputs have no matching stored response or stateless tool call"
+                    );
+                    return Err(HistoryError::Invalid(
+                        "tool output has no matching stored response".to_string(),
+                    ));
+                }
+                Err(error) => return Err(error),
+            }
+        }
     } else if let Some(previous) = previous {
         merge_new_messages(&previous.messages, &incoming)
     } else {
@@ -468,6 +488,85 @@ pub fn repair_history(
 
     validate_chat_tool_history(&repaired)
         .map_err(|error| HistoryError::Invalid(error.to_string()))?;
+    Ok(repaired)
+}
+
+fn repair_stateless_history(
+    messages: &[Value],
+    outputs: &[Value],
+) -> Result<Vec<Value>, HistoryError> {
+    let call_ids: Vec<String> = outputs
+        .iter()
+        .filter_map(|output| {
+            output
+                .get("tool_call_id")
+                .or_else(|| output.get("call_id"))
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
+        .collect();
+    ensure_no_duplicate_call_outputs(&call_ids)
+        .map_err(|error| HistoryError::Invalid(error.to_string()))?;
+
+    let mut repaired = Vec::new();
+    let mut replayed = HashSet::new();
+
+    for message in messages {
+        repaired.push(message.clone());
+
+        if message.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+
+        let tool_calls = message
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|call| {
+                call.get("id")
+                    .or_else(|| call.get("call_id"))
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+            })
+            .collect::<Vec<_>>();
+
+        for call_id in tool_calls {
+            for output in outputs.iter().filter(|output| {
+                output
+                    .get("tool_call_id")
+                    .or_else(|| output.get("call_id"))
+                    .and_then(Value::as_str)
+                    == Some(call_id)
+            }) {
+                tracing::debug!(
+                    event = "tool_output_replayed",
+                    call_id,
+                    stateless = true,
+                    "tool output inserted after stateless assistant tool call"
+                );
+                repaired.push(output.clone());
+                replayed.insert(call_id.to_string());
+            }
+        }
+    }
+
+    let missing = call_ids
+        .iter()
+        .filter(|call_id| !replayed.contains(*call_id))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !missing.is_empty() {
+        return Err(HistoryError::Invalid(format!(
+            "tool output has no matching stateless tool call: {}",
+            missing.join(", ")
+        )));
+    }
+
+    validate_chat_tool_history(&repaired)
+        .map_err(|error| HistoryError::Invalid(error.to_string()))?;
+
     Ok(repaired)
 }
 
