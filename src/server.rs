@@ -8,12 +8,17 @@ use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 use crate::config::Config;
 use crate::conversion::{
     build_chat_payload, build_response, function_output_call_ids, StreamAssembler,
 };
-use crate::state::StateStore;
+use crate::media_guard::{
+    find_unsupported_multimodal_input, is_multimodal_unsupported_error,
+    unsupported_multimodal_error_message,
+};
+use crate::state::{now_ts, StateStore};
 use crate::upstream::{
     extract_error_message, parse_chat_sse_bytes, sse_data_from_block, sse_event_from_block,
     OpenCodeGoClient, UpstreamError,
@@ -132,6 +137,14 @@ async fn complete_response(state: AppState, body: Value) -> Response {
                 )
             }
         };
+    if let Some(message) = find_unsupported_multimodal_input(&model_upstream, &payload) {
+        return responses_failed_response(
+            &body,
+            &model_alias,
+            "unsupported_multimodal_input",
+            &message,
+        );
+    }
     let permit = match state.capacity.clone().try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
@@ -146,7 +159,18 @@ async fn complete_response(state: AppState, body: Value) -> Response {
     drop(permit);
     let upstream = match upstream {
         Ok(value) => value,
-        Err(error) => return upstream_error(error),
+        Err(error) => {
+            let message = error.to_string();
+            if is_multimodal_unsupported_error(&message) {
+                return responses_failed_response(
+                    &body,
+                    &model_alias,
+                    "unsupported_multimodal_input",
+                    unsupported_multimodal_error_message(),
+                );
+            }
+            return upstream_error(error);
+        }
     };
     match build_response(
         &body,
@@ -201,6 +225,19 @@ async fn stream_response(state: AppState, body: Value) -> Response {
             }
         };
 
+    if let Some(message) = find_unsupported_multimodal_input(&model_upstream, &payload) {
+        return stream_failed_response(
+            state,
+            body,
+            model_alias,
+            model_upstream,
+            messages,
+            tool_ctx,
+            "unsupported_multimodal_input",
+            &message,
+        );
+    }
+
     let (tx, rx) =
         tokio::sync::mpsc::unbounded_channel::<Result<axum::response::sse::Event, Infallible>>();
     let state_for_task = state.clone();
@@ -253,7 +290,9 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                                             data.clone().filter(|data| !data.trim().is_empty())
                                         })
                                         .unwrap_or_else(|| "upstream stream error".to_string());
-                                    let _ = assembler.fail("upstream_error", &message);
+                                    let kind = upstream_stream_error_type(&message);
+                                    let display = upstream_stream_error_message(&message);
+                                    let _ = assembler.fail(kind, &display);
                                     let _ = tx.send(Ok(
                                         axum::response::sse::Event::default().data("[DONE]")
                                     ));
@@ -275,7 +314,9 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                                                 .unwrap_or_else(|| {
                                                     "upstream stream error".to_string()
                                                 });
-                                            let _ = assembler.fail("upstream_error", &message);
+                                            let kind = upstream_stream_error_type(&message);
+                                            let display = upstream_stream_error_message(&message);
+                                            let _ = assembler.fail(kind, &display);
                                             let _ = tx
                                                 .send(Ok(axum::response::sse::Event::default()
                                                     .data("[DONE]")));
@@ -289,7 +330,10 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                             }
                         }
                         Err(error) => {
-                            let _ = assembler.fail("upstream_error", &error.to_string());
+                            let message = error.to_string();
+                            let kind = upstream_stream_error_type(&message);
+                            let display = upstream_stream_error_message(&message);
+                            let _ = assembler.fail(kind, &display);
                             let _ =
                                 tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
                             return;
@@ -310,7 +354,10 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                 let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
             }
             Err(error) => {
-                let _ = assembler.fail("upstream_error", &error.to_string());
+                let message = error.to_string();
+                let kind = upstream_stream_error_type(&message);
+                let display = upstream_stream_error_message(&message);
+                let _ = assembler.fail(kind, &display);
                 let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
             }
         }
@@ -379,6 +426,85 @@ fn error_response(status: StatusCode, kind: &str, message: &str) -> Response {
         Json(json!({"error":{"type":kind,"message":message}})),
     )
         .into_response()
+}
+
+fn responses_failed_response(body: &Value, model: &str, kind: &str, message: &str) -> Response {
+    Json(responses_failed_value(body, model, kind, message)).into_response()
+}
+
+fn responses_failed_value(body: &Value, model: &str, kind: &str, message: &str) -> Value {
+    json!({
+        "id": format!("resp_{}", Uuid::new_v4().simple()),
+        "object": "response",
+        "created_at": now_ts(),
+        "status": "failed",
+        "error": {
+            "type": kind,
+            "code": kind,
+            "message": message.chars().take(1000).collect::<String>()
+        },
+        "incomplete_details": null,
+        "instructions": body.get("instructions").cloned().unwrap_or(Value::Null),
+        "model": model,
+        "output": [],
+        "parallel_tool_calls": body.get("parallel_tool_calls").and_then(Value::as_bool).unwrap_or(false),
+        "previous_response_id": body.get("previous_response_id").cloned().unwrap_or(Value::Null),
+        "store": false,
+        "usage": {"input_tokens":0,"output_tokens":0,"total_tokens":0},
+        "metadata": body.get("metadata").cloned().unwrap_or_else(|| json!({}))
+    })
+}
+
+fn stream_failed_response(
+    state: AppState,
+    body: Value,
+    model_alias: String,
+    model_upstream: String,
+    messages: Vec<Value>,
+    tool_ctx: crate::conversion::tool_context::ToolContext,
+    kind: &'static str,
+    message: &str,
+) -> Response {
+    let (tx, rx) =
+        tokio::sync::mpsc::unbounded_channel::<Result<axum::response::sse::Event, Infallible>>();
+    let emit_tx = tx.clone();
+    let state_for_emit = state.clone();
+    let mut assembler = StreamAssembler::new(
+        body,
+        model_alias,
+        model_upstream,
+        messages,
+        tool_ctx,
+        Box::new(move |item| state_for_emit.state.put(&item)),
+        Box::new(move |event, data| {
+            let sse = axum::response::sse::Event::default()
+                .event(event)
+                .data(data.to_string());
+            let _ = emit_tx.send(Ok(sse));
+            Ok(())
+        }),
+    );
+    let _ = assembler.start();
+    let _ = assembler.fail(kind, message);
+    let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
+    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    Sse::new(stream).into_response()
+}
+
+fn upstream_stream_error_type(message: &str) -> &'static str {
+    if is_multimodal_unsupported_error(message) {
+        "unsupported_multimodal_input"
+    } else {
+        "upstream_error"
+    }
+}
+
+fn upstream_stream_error_message(message: &str) -> String {
+    if is_multimodal_unsupported_error(message) {
+        unsupported_multimodal_error_message().to_string()
+    } else {
+        message.to_string()
+    }
 }
 
 fn upstream_error(error: UpstreamError) -> Response {
