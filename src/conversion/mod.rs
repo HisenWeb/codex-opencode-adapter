@@ -25,6 +25,11 @@ pub fn function_output_call_ids(body: &Value) -> Result<Vec<String>, HistoryErro
     }
 
     if input_contains_all_tool_calls(body, &ids) {
+        tracing::debug!(
+            event = "stateless_tool_history_bypass_state_lookup",
+            call_ids = ?ids,
+            "Responses input contains matching tool calls for every tool output; using stateless history repair instead of stored-state lookup"
+        );
         Ok(Vec::new())
     } else {
         Ok(ids)
