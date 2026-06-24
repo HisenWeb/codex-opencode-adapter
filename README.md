@@ -93,7 +93,7 @@ This project is in the protocol-compatibility and validation phase.
 | Responses -> Chat request conversion | Implemented | Covers instructions, input history, tool calls, tool outputs, tool choice, and multimodal input blocks |
 | Chat -> Responses non-stream conversion | Implemented | Covers text, reasoning extraction, usage, finish reasons, function calls, custom tool calls, tool search calls, and stored replay state |
 | Chat stream -> Responses stream conversion | Implemented | Covers Responses SSE lifecycle, text deltas, reasoning deltas, streamed tool-call assembly, custom tool input finalization, tool search, terminal events, failed streams, and truncated streams |
-| Tool lifecycle and state replay | Implemented, narrow scope | `previous_response_id` and pending tool call IDs are stored locally so tool-result continuations can be repaired; this is not the full cc-switch history repair subsystem |
+| Tool lifecycle and state replay | Implemented, narrow scope | Supports `previous_response_id`, unique pending-call fallback, and stateless full-history continuation when matching tool calls are already present in `input`; this is not the full cc-switch history repair subsystem |
 | Reasoning output compatibility | Implemented for extraction/splitting | Reads upstream reasoning fields and leading `<think>...</think>` blocks; provider-specific request-side reasoning parameter mapping remains limited until real upstream validation |
 | Tool search compatibility | Implemented | `tool_search` has a dedicated schema and converts to/from Responses `tool_search_call` instead of being treated as a custom tool |
 | Multimodal input conversion | Implemented | Request-side `input_image`, base64 image source, `input_file`, `input_audio`, and mixed content arrays are converted to Chat-compatible content blocks |
@@ -109,6 +109,7 @@ Latest local validation expected after changing this file set:
 cargo fmt --check
 cargo test --lib
 cargo test --test conversion_rs
+cargo test --test stateless_tool_continuation
 cargo test --test tool_search_regression
 cargo test --test multimodal_regression
 cargo test --test test_e2e
@@ -120,8 +121,6 @@ cargo test
 These are known protocol differences from cc-switch that should be verified
 against real Codex subagent traffic before expanding the adapter:
 
-- Stateless full-history requests that already contain both a `function_call` and
-  its `function_call_output` may still need an explicit no-previous-state path.
 - Some strict reasoning models may require a non-empty `reasoning_content`
   placeholder on assistant messages that contain `tool_calls`.
 - Non-stream upstream errors may need to be wrapped as full Responses
@@ -142,7 +141,7 @@ Implemented in the current codebase:
 - Chat non-stream response -> Responses response conversion.
 - Chat SSE stream -> Responses SSE stream conversion.
 - Function tool, namespace tool, custom tool, and tool search conversion.
-- Tool result continuation and `previous_response_id` state replay.
+- Tool result continuation, `previous_response_id` state replay, unique pending-call fallback, and stateless full-history repair.
 - Reasoning field extraction and compatibility handling.
 - Usage, finish reason, incomplete, failed, and terminal event mapping.
 - SSE parsing compatibility for LF/CRLF blocks and upstream `event:error` cases.
@@ -182,7 +181,7 @@ Next planned milestone:
 - Verify streamed function-call round trip.
 - Verify custom tool-call round trip.
 - Verify tool-search call round trip.
-- Verify `function_call_output` / `custom_tool_call_output` / `tool_search_output` continuation through stored state.
+- Verify `function_call_output` / `custom_tool_call_output` / `tool_search_output` continuation through stored state and stateless full-history input.
 
 ### P3-full Codex subagent validation
 
@@ -259,8 +258,6 @@ CODEX_OPENCODE_LOCAL_TOKEN="your-local-token" \
 cargo run
 ```
 
-The adapter listens on `127.0.0.1:4010` by default.
-
 ## Environment variables
 
 | Variable | Default | Description |
@@ -291,6 +288,7 @@ cargo test --lib
 
 # Conversion regression tests
 cargo test --test conversion_rs
+cargo test --test stateless_tool_continuation
 cargo test --test tool_search_regression
 cargo test --test multimodal_regression
 
@@ -305,10 +303,11 @@ OPENCODE_GO_API_KEY="your-key" cargo test --test test_e2e test_e2e_real_smoke --
 
 ```text
 tests/
-├── conversion_rs.rs             # Rust unit tests for conversion modules
-├── tool_search_regression.rs    # Tool search/custom tool streaming regressions
-├── multimodal_regression.rs     # Multimodal input and guard regressions
-└── test_e2e.rs                  # L2 integration tests (mock upstream + real smoke)
+├── conversion_rs.rs                  # Rust unit tests for conversion modules
+├── stateless_tool_continuation.rs    # Stateless full-history tool continuation regressions
+├── tool_search_regression.rs         # Tool search/custom tool streaming regressions
+├── multimodal_regression.rs          # Multimodal input and guard regressions
+└── test_e2e.rs                       # L2 integration tests (mock upstream + real smoke)
 ```
 
 ## Endpoints
