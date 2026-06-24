@@ -95,7 +95,10 @@ fn nonstream_content_with_tool_calls_outputs_only_tool_call_item() {
         "assistant content should remain available for replay history"
     );
     assert!(
-        assistant.get("tool_calls").and_then(Value::as_array).is_some(),
+        assistant
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .is_some(),
         "stored history should preserve Chat tool_calls for continuation"
     );
     assert_eq!(
