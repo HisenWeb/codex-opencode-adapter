@@ -64,16 +64,27 @@ fn nonstream_content_with_tool_calls_outputs_only_tool_call_item() {
         .get("output")
         .and_then(Value::as_array)
         .expect("response output should be an array");
-    assert_eq!(output.len(), 1, "tool-call turns must not also expose assistant messages");
-    assert_eq!(output[0].get("type").and_then(Value::as_str), Some("function_call"));
-    assert_eq!(output[0].get("call_id").and_then(Value::as_str), Some("call_weather_1"));
+    assert_eq!(
+        output.len(),
+        1,
+        "tool-call turns must not also expose assistant messages"
+    );
+    assert_eq!(
+        output[0].get("type").and_then(Value::as_str),
+        Some("function_call")
+    );
+    assert_eq!(
+        output[0].get("call_id").and_then(Value::as_str),
+        Some("call_weather_1")
+    );
     assert!(
-        !output.iter().any(|item| item.get("type").and_then(Value::as_str) == Some("message")),
+        !output
+            .iter()
+            .any(|item| item.get("type").and_then(Value::as_str) == Some("message")),
         "assistant content must be suppressed from Responses output when tool_calls are present"
     );
 
     let stored = stored.expect("converted response should be persisted");
-    assert_eq!(stored.pending_call_ids, vec!["call_weather_1".to_string()]);
     let assistant = stored
         .messages
         .last()
@@ -86,5 +97,9 @@ fn nonstream_content_with_tool_calls_outputs_only_tool_call_item() {
     assert!(
         assistant.get("tool_calls").and_then(Value::as_array).is_some(),
         "stored history should preserve Chat tool_calls for continuation"
+    );
+    assert_eq!(
+        stored.pending_call_ids,
+        vec![String::from("call_weather_1")]
     );
 }
