@@ -72,6 +72,7 @@ pub struct StreamAssembler {
     terminal_emitted: bool,
     think_state: ThinkBlockState,
     think_buffer: String,
+    buffer_text_until_tool_decision: bool,
 }
 
 impl StreamAssembler {
@@ -84,6 +85,7 @@ impl StreamAssembler {
         state_put: Box<dyn FnMut(StoredResponse) -> anyhow::Result<()> + Send>,
         emit: EmitFn,
     ) -> Self {
+        let buffer_text_until_tool_decision = !tool_context.chat_tools.is_empty();
         Self {
             body,
             model_alias,
@@ -110,6 +112,7 @@ impl StreamAssembler {
             terminal_emitted: false,
             think_state: ThinkBlockState::Detecting,
             think_buffer: String::new(),
+            buffer_text_until_tool_decision,
         }
     }
 
@@ -503,8 +506,13 @@ impl StreamAssembler {
     }
 
     fn push_text_delta(&mut self, text: &str) -> anyhow::Result<()> {
+        if self.buffer_text_until_tool_decision {
+            self.content.push_str(text);
+            return Ok(());
+        }
+        self.ensure_text_started()?;
         self.content.push_str(text);
-        Ok(())
+        self.emit_event("response.output_text.delta", json!({"type":"response.output_text.delta","output_index":self.text_output_index,"content_index":0,"item_id":self.message_item_id.clone(),"delta":text}))
     }
 
     fn ensure_text_started(&mut self) -> anyhow::Result<()> {
@@ -527,7 +535,9 @@ impl StreamAssembler {
         self.ensure_text_started()?;
         let index = self.text_output_index.unwrap();
         let item = message_item(&self.content, Some(self.message_item_id.clone()));
-        self.emit_event("response.output_text.delta", json!({"type":"response.output_text.delta","output_index":index,"content_index":0,"item_id":self.message_item_id.clone(),"delta":self.content.clone()}))?;
+        if self.buffer_text_until_tool_decision {
+            self.emit_event("response.output_text.delta", json!({"type":"response.output_text.delta","output_index":index,"content_index":0,"item_id":self.message_item_id.clone(),"delta":self.content.clone()}))?;
+        }
         self.emit_event("response.output_text.done", json!({"type":"response.output_text.done","output_index":index,"content_index":0,"item_id":self.message_item_id.clone(),"text":self.content.clone()}))?;
         self.emit_event("response.content_part.done", json!({"type":"response.content_part.done","output_index":index,"content_index":0,"item_id":self.message_item_id.clone(),"part":{"type":"output_text","text":self.content.clone(),"annotations":[]}}))?;
         self.emit_event(
@@ -608,6 +618,9 @@ impl StreamAssembler {
             .unwrap_or(false);
         if !should_start {
             return Ok(());
+        }
+        if !self.buffer_text_until_tool_decision && !self.content.is_empty() && !self.text_done {
+            self.finish_text_item()?;
         }
         if !self.reasoning.is_empty() && !self.reasoning_done {
             self.finish_reasoning_item()?;
