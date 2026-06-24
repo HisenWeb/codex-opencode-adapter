@@ -106,19 +106,18 @@ impl StateStore {
             let pending: HashSet<&str> = item.pending_call_ids.iter().map(String::as_str).collect();
             let mut intersects_wanted = false;
 
-            for call_id in &wanted {
+            for &call_id in &wanted {
                 if !pending.contains(call_id) {
                     continue;
                 }
                 intersects_wanted = true;
-                match matched_by_call_id.get(*call_id) {
+                match matched_by_call_id.get(call_id) {
                     Some(existing_response_id) if existing_response_id != &item.response_id => {
                         return Ok(None);
                     }
                     Some(_) => {}
                     None => {
-                        matched_by_call_id
-                            .insert((*call_id).to_string(), item.response_id.clone());
+                        matched_by_call_id.insert(call_id.to_string(), item.response_id.clone());
                     }
                 }
             }
