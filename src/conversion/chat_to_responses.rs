@@ -52,9 +52,6 @@ where
     if !reasoning.is_empty() {
         output.push(reasoning_item(&reasoning, None));
     }
-    if !content.is_empty() {
-        output.push(message_item(&content, None));
-    }
 
     let mut pending = Vec::new();
     let mut replay_calls = Vec::new();
@@ -126,6 +123,9 @@ where
             }
             output.push(item);
         }
+    }
+    if !content.is_empty() && pending.is_empty() {
+        output.push(message_item(&content, None));
     }
     if !replay_calls.is_empty() {
         assistant["tool_calls"] = Value::Array(replay_calls);
