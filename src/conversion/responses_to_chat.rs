@@ -1,3 +1,4 @@
+use crate::codex_chat_history::{ensure_no_duplicate_call_outputs, validate_chat_tool_history};
 use crate::state::StoredResponse;
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -61,6 +62,7 @@ pub fn build_chat_payload(
         messages.push(json!({"role":"user","content":""}));
     }
     messages = normalize_upstream_roles(&messages);
+    validate_chat_tool_history(&messages).map_err(|error| HistoryError::Invalid(error.to_string()))?;
 
     let mut payload = json!({
         "model": model_upstream,
@@ -377,39 +379,34 @@ pub fn repair_history(
     let Some(outputs) = tool_outputs else {
         return Ok(repaired);
     };
-    let pending: std::collections::HashSet<String> = repaired
+
+    let call_ids: Vec<String> = outputs
         .iter()
-        .filter(|m| m.get("role").and_then(Value::as_str) == Some("assistant"))
-        .flat_map(|m| {
-            m.get("tool_calls")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-        })
-        .filter_map(|call| {
-            call.get("id")
+        .filter_map(|output| {
+            output
+                .get("tool_call_id")
+                .or_else(|| output.get("call_id"))
                 .and_then(Value::as_str)
                 .map(ToString::to_string)
         })
         .collect();
-    let mut seen = std::collections::HashSet::new();
+    ensure_no_duplicate_call_outputs(&call_ids)
+        .map_err(|error| HistoryError::Invalid(error.to_string()))?;
+
     for output in outputs {
         let call_id = output
             .get("tool_call_id")
             .and_then(Value::as_str)
             .unwrap_or("");
-        if !pending.contains(call_id) {
-            return Err(HistoryError::Invalid(format!(
-                "unknown tool call id: {call_id}"
-            )));
-        }
-        if !seen.insert(call_id.to_string()) {
-            return Err(HistoryError::Invalid(format!(
-                "duplicate tool output: {call_id}"
-            )));
+        if call_id.is_empty() {
+            return Err(HistoryError::Invalid(
+                "tool output requires tool_call_id".to_string(),
+            ));
         }
         repaired.push(output.clone());
     }
+
+    validate_chat_tool_history(&repaired).map_err(|error| HistoryError::Invalid(error.to_string()))?;
     Ok(repaired)
 }
 
