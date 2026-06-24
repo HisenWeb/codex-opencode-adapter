@@ -38,14 +38,17 @@ fn streaming_content_before_tool_call_does_not_emit_message_output() {
     );
 
     assembler.start().unwrap();
-    assembler.accept(&stream_content_chunk("I should call a tool first.", None)).unwrap();
+    assembler
+        .accept(&stream_content_chunk("I should call a tool first.", None))
+        .unwrap();
 
     {
         let events = events.lock().unwrap();
-        assert!(!events.iter().any(|(name, _)| name == "response.output_text.delta"));
+        assert!(!events
+            .iter()
+            .any(|(name, _)| name == "response.output_text.delta"));
         assert!(!events.iter().any(|(name, data)| {
-            name == "response.output_item.added"
-                && data["item"]["type"].as_str() == Some("message")
+            name == "response.output_item.added" && data["item"]["type"].as_str() == Some("message")
         }));
     }
 
@@ -61,7 +64,9 @@ fn streaming_content_before_tool_call_does_not_emit_message_output() {
     let response = assembler.finalize().unwrap();
     let events = events.lock().unwrap();
 
-    assert!(!events.iter().any(|(name, _)| name == "response.output_text.delta"));
+    assert!(!events
+        .iter()
+        .any(|(name, _)| name == "response.output_text.delta"));
     assert!(!events.iter().any(|(name, data)| {
         name == "response.output_item.done" && data["item"]["type"].as_str() == Some("message")
     }));
@@ -82,7 +87,7 @@ fn streaming_content_before_tool_call_does_not_emit_message_output() {
 }
 
 #[test]
-fn streaming_content_only_flushes_message_on_finalize() {
+fn streaming_content_without_tools_keeps_incremental_text_deltas() {
     let body = json!({
         "model": "opencode-go/deepseek-v4-pro",
         "input": "Answer normally",
@@ -114,8 +119,22 @@ fn streaming_content_only_flushes_message_on_finalize() {
     );
 
     assembler.start().unwrap();
-    assembler.accept(&stream_content_chunk("hello ", None)).unwrap();
-    assembler.accept(&stream_content_chunk("world", Some("stop"))).unwrap();
+    assembler
+        .accept(&stream_content_chunk("hello ", None))
+        .unwrap();
+    {
+        let events = events.lock().unwrap();
+        let text_deltas = events
+            .iter()
+            .filter(|(name, _)| name == "response.output_text.delta")
+            .collect::<Vec<_>>();
+        assert_eq!(text_deltas.len(), 1);
+        assert_eq!(text_deltas[0].1["delta"], "hello ");
+    }
+
+    assembler
+        .accept(&stream_content_chunk("world", Some("stop")))
+        .unwrap();
     let response = assembler.finalize().unwrap();
     let events = events.lock().unwrap();
 
@@ -123,8 +142,9 @@ fn streaming_content_only_flushes_message_on_finalize() {
         .iter()
         .filter(|(name, _)| name == "response.output_text.delta")
         .collect::<Vec<_>>();
-    assert_eq!(text_deltas.len(), 1);
-    assert_eq!(text_deltas[0].1["delta"], "hello world");
+    assert_eq!(text_deltas.len(), 2);
+    assert_eq!(text_deltas[0].1["delta"], "hello ");
+    assert_eq!(text_deltas[1].1["delta"], "world");
 
     let output = response["output"].as_array().unwrap();
     let message = output.iter().find(|item| item["type"] == "message").unwrap();
