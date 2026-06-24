@@ -47,6 +47,7 @@ files are:
 | `src-tauri/src/proxy/media_sanitizer.rs` | Multimodal capability guard behavior and detection of upstream errors such as `unknown variant image_url, expected text` |
 | `src-tauri/src/proxy/forwarder.rs` | Request/response integration points and reactive multimodal error handling around upstream calls |
 | `src-tauri/src/proxy/providers/models/openai.rs` | OpenAI-compatible Chat content block shapes such as `image_url` |
+| `src-tauri/src/proxy/providers/codex_chat_common.rs` | Shared Codex Chat conversion helpers for reasoning extraction, `<think>` block splitting, Responses tool-call item construction, `call_id` extraction, and empty-value handling |
 | `src-tauri/src/proxy/providers/codex_chat_history.rs` | Cross-request Codex tool-call history replay, `previous_response_id` restoration, unique `call_id` fallback, and subagent cases where `previous_response_id` may be omitted or rewritten |
 
 The implemented Rust equivalents are intentionally narrower:
