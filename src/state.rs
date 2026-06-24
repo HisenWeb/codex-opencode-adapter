@@ -79,6 +79,12 @@ impl StateStore {
             let payload: String = row.get(0)?;
             Ok(Some(serde_json::from_str(&payload)?))
         } else {
+            tracing::warn!(
+                event = "stored_response_not_found",
+                response_id,
+                cutoff,
+                "requested previous_response_id was not found in non-expired state"
+            );
             Ok(None)
         }
     }
@@ -113,6 +119,15 @@ impl StateStore {
                 intersects_wanted = true;
                 match matched_by_call_id.get(call_id) {
                     Some(existing_response_id) if existing_response_id != &item.response_id => {
+                        tracing::warn!(
+                            event = "tool_history_call_id_ambiguous",
+                            call_id,
+                            candidate_count = 2,
+                            existing_response_id,
+                            candidate_response_id = %item.response_id,
+                            requested_call_ids = ?call_ids,
+                            "call_id matched multiple stored responses; unique fallback disabled"
+                        );
                         return Ok(None);
                     }
                     Some(_) => {}
@@ -125,6 +140,14 @@ impl StateStore {
             if intersects_wanted && wanted.is_subset(&pending) {
                 match &unique_response_id {
                     Some(existing_response_id) if existing_response_id != &item.response_id => {
+                        tracing::warn!(
+                            event = "tool_history_response_ambiguous",
+                            candidate_count = 2,
+                            existing_response_id,
+                            candidate_response_id = %item.response_id,
+                            requested_call_ids = ?call_ids,
+                            "requested call ids matched multiple stored responses; unique fallback disabled"
+                        );
                         return Ok(None);
                     }
                     Some(_) => {}
@@ -137,8 +160,24 @@ impl StateStore {
         }
 
         if matched_by_call_id.len() == wanted.len() {
+            if let Some(response) = unique_response.as_ref() {
+                tracing::debug!(
+                    event = "tool_history_unique_fallback_hit",
+                    response_id = %response.response_id,
+                    requested_call_ids = ?call_ids,
+                    pending_call_ids = ?response.pending_call_ids,
+                    "restored tool continuation by unique pending call_id fallback"
+                );
+            }
             Ok(unique_response)
         } else {
+            tracing::warn!(
+                event = "tool_history_call_id_not_found",
+                requested_call_ids = ?call_ids,
+                matched_call_id_count = matched_by_call_id.len(),
+                requested_call_id_count = wanted.len(),
+                "could not restore tool continuation by pending call_id fallback"
+            );
             Ok(None)
         }
     }
