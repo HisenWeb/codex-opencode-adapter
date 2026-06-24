@@ -147,7 +147,10 @@ fn streaming_content_without_tools_keeps_incremental_text_deltas() {
     assert_eq!(text_deltas[1].1["delta"], "world");
 
     let output = response["output"].as_array().unwrap();
-    let message = output.iter().find(|item| item["type"] == "message").unwrap();
+    let message = output
+        .iter()
+        .find(|item| item["type"] == "message")
+        .unwrap();
     assert_eq!(message["content"][0]["text"], "hello world");
 }
 
@@ -187,7 +190,10 @@ fn stream_tool_chunk(
     call.insert("function".to_string(), Value::Object(function));
 
     let mut delta = Map::new();
-    delta.insert("tool_calls".to_string(), Value::Array(vec![Value::Object(call)]));
+    delta.insert(
+        "tool_calls".to_string(),
+        Value::Array(vec![Value::Object(call)]),
+    );
 
     let mut choice = Map::new();
     choice.insert("delta".to_string(), Value::Object(delta));
