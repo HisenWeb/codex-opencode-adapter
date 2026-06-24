@@ -333,25 +333,35 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                                                 .data("[DONE]")));
                                         return;
                                     }
-                                    if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                                        let is_error = value.get("error").is_some()
-                                            || value.get("base_resp").is_some();
-                                        if is_error {
-                                            let message = extract_error_message(&value)
-                                                .unwrap_or_else(|| {
-                                                    "upstream stream error".to_string()
-                                                });
-                                            let kind = upstream_stream_error_type(&message);
-                                            let display = upstream_stream_error_message(&message);
-                                            let _ = assembler.fail(kind, &display);
+                                    match serde_json::from_str::<Value>(&data) {
+                                        Ok(value) => {
+                                            let is_error = value.get("error").is_some()
+                                                || value.get("base_resp").is_some();
+                                            if is_error {
+                                                let message = extract_error_message(&value)
+                                                    .unwrap_or_else(|| {
+                                                        "upstream stream error".to_string()
+                                                    });
+                                                let kind = upstream_stream_error_type(&message);
+                                                let display = upstream_stream_error_message(&message);
+                                                let _ = assembler.fail(kind, &display);
+                                                let _ = tx
+                                                    .send(Ok(axum::response::sse::Event::default()
+                                                        .data("[DONE]")));
+                                                return;
+                                            }
+                                            let _ = assembler.accept(&value);
+                                        }
+                                        Err(error) => {
+                                            let message = format!(
+                                                "failed to parse upstream SSE data as JSON: {error}"
+                                            );
+                                            let _ = assembler.fail("upstream_error", &message);
                                             let _ = tx
                                                 .send(Ok(axum::response::sse::Event::default()
                                                     .data("[DONE]")));
                                             return;
                                         }
-                                        let _ = assembler.accept(&value);
-                                    } else {
-                                        tracing::warn!(data = %data, "failed to parse upstream SSE data as JSON");
                                     }
                                 }
                             }
@@ -485,7 +495,11 @@ fn responses_failed_response_with_status(
     kind: &str,
     message: &str,
 ) -> Response {
-    (status, Json(responses_failed_value(body, model, kind, message))).into_response()
+    (
+        status,
+        Json(responses_failed_value(body, model, kind, message)),
+    )
+        .into_response()
 }
 
 fn responses_failed_value(body: &Value, model: &str, kind: &str, message: &str) -> Value {
