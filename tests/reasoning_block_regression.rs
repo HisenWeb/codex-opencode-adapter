@@ -62,7 +62,10 @@ fn nonstream_leading_reasoning_block_becomes_reasoning_item() {
         .as_str()
         .unwrap()
         .contains("hidden chain"));
-    assert_eq!(stored[0].messages.last().unwrap()["content"], "visible answer");
+    assert_eq!(
+        stored[0].messages.last().unwrap()["content"],
+        "visible answer"
+    );
     assert_eq!(
         stored[0].messages.last().unwrap()["reasoning_content"],
         "hidden chain"
