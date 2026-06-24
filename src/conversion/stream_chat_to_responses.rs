@@ -193,7 +193,8 @@ impl StreamAssembler {
         if !self.reasoning.is_empty() {
             self.finish_reasoning_item()?;
         }
-        if !self.content.is_empty() {
+        let has_tool_output = self.has_tool_output();
+        if !self.content.is_empty() && !has_tool_output {
             self.finish_text_item()?;
         }
 
@@ -206,7 +207,7 @@ impl StreamAssembler {
                 Some(self.reasoning_item_id.clone()),
             ));
         }
-        if !self.content.is_empty() {
+        if !self.content.is_empty() && !has_tool_output {
             output.push(message_item(
                 &self.content,
                 Some(self.message_item_id.clone()),
@@ -502,9 +503,8 @@ impl StreamAssembler {
     }
 
     fn push_text_delta(&mut self, text: &str) -> anyhow::Result<()> {
-        self.ensure_text_started()?;
         self.content.push_str(text);
-        self.emit_event("response.output_text.delta", json!({"type":"response.output_text.delta","output_index":self.text_output_index,"content_index":0,"item_id":self.message_item_id.clone(),"delta":text}))
+        Ok(())
     }
 
     fn ensure_text_started(&mut self) -> anyhow::Result<()> {
@@ -521,11 +521,13 @@ impl StreamAssembler {
     }
 
     fn finish_text_item(&mut self) -> anyhow::Result<()> {
-        if self.text_output_index.is_none() || self.text_done {
+        if self.content.is_empty() || self.text_done {
             return Ok(());
         }
+        self.ensure_text_started()?;
         let index = self.text_output_index.unwrap();
         let item = message_item(&self.content, Some(self.message_item_id.clone()));
+        self.emit_event("response.output_text.delta", json!({"type":"response.output_text.delta","output_index":index,"content_index":0,"item_id":self.message_item_id.clone(),"delta":self.content.clone()}))?;
         self.emit_event("response.output_text.done", json!({"type":"response.output_text.done","output_index":index,"content_index":0,"item_id":self.message_item_id.clone(),"text":self.content.clone()}))?;
         self.emit_event("response.content_part.done", json!({"type":"response.content_part.done","output_index":index,"content_index":0,"item_id":self.message_item_id.clone(),"part":{"type":"output_text","text":self.content.clone(),"annotations":[]}}))?;
         self.emit_event(
@@ -607,9 +609,6 @@ impl StreamAssembler {
         if !should_start {
             return Ok(());
         }
-        if !self.content.is_empty() && !self.text_done {
-            self.finish_text_item()?;
-        }
         if !self.reasoning.is_empty() && !self.reasoning_done {
             self.finish_reasoning_item()?;
         }
@@ -682,6 +681,12 @@ impl StreamAssembler {
                 json!({"id":item_id,"type":"function_call","status":status,"call_id":call_id,"name":self.tool_context.restore_name(chat_name),"arguments":arguments})
             }
         }
+    }
+
+    fn has_tool_output(&self) -> bool {
+        self.tool_calls
+            .values()
+            .any(|call| !call.done && !call.name.trim().is_empty())
     }
 
     pub fn has_substantive_output(&self) -> bool {
