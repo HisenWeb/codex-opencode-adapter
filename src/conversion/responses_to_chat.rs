@@ -62,7 +62,8 @@ pub fn build_chat_payload(
         messages.push(json!({"role":"user","content":""}));
     }
     messages = normalize_upstream_roles(&messages);
-    validate_chat_tool_history(&messages).map_err(|error| HistoryError::Invalid(error.to_string()))?;
+    validate_chat_tool_history(&messages)
+        .map_err(|error| HistoryError::Invalid(error.to_string()))?;
 
     let mut payload = json!({
         "model": model_upstream,
@@ -406,7 +407,8 @@ pub fn repair_history(
         repaired.push(output.clone());
     }
 
-    validate_chat_tool_history(&repaired).map_err(|error| HistoryError::Invalid(error.to_string()))?;
+    validate_chat_tool_history(&repaired)
+        .map_err(|error| HistoryError::Invalid(error.to_string()))?;
     Ok(repaired)
 }
 

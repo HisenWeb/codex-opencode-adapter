@@ -216,7 +216,12 @@ async fn stream_response(state: AppState, body: Value) -> Response {
     let previous = match previous_response(&state, &body) {
         Ok(previous) => previous,
         Err(message) => {
-            return early_stream_failed_response(body, model_alias, "invalid_tool_history", &message)
+            return early_stream_failed_response(
+                body,
+                model_alias,
+                "invalid_tool_history",
+                &message,
+            )
         }
     };
     let (payload, messages, _reverse, tool_ctx) =
