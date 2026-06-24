@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -87,23 +88,60 @@ impl StateStore {
             return Ok(None);
         }
         let cutoff = now_ts() - self.ttl_seconds;
-        let wanted: std::collections::HashSet<&str> = call_ids.iter().map(String::as_str).collect();
+        let wanted: HashSet<&str> = call_ids.iter().map(String::as_str).collect();
         let _guard = self.lock.lock().expect("state lock poisoned");
         let db = self.connect()?;
         let mut stmt = db.prepare(
             "SELECT payload FROM responses WHERE created_at>=?1 ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map(params![cutoff], |row| row.get::<_, String>(0))?;
+
+        let mut matched_by_call_id: HashMap<String, String> = HashMap::new();
+        let mut unique_response: Option<StoredResponse> = None;
+        let mut unique_response_id: Option<String> = None;
+
         for row in rows {
             let payload = row?;
             let item: StoredResponse = serde_json::from_str(&payload)?;
-            let pending: std::collections::HashSet<&str> =
-                item.pending_call_ids.iter().map(String::as_str).collect();
-            if wanted.is_subset(&pending) {
-                return Ok(Some(item));
+            let pending: HashSet<&str> = item.pending_call_ids.iter().map(String::as_str).collect();
+            let mut intersects_wanted = false;
+
+            for call_id in &wanted {
+                if !pending.contains(call_id) {
+                    continue;
+                }
+                intersects_wanted = true;
+                match matched_by_call_id.get(*call_id) {
+                    Some(existing_response_id) if existing_response_id != &item.response_id => {
+                        return Ok(None);
+                    }
+                    Some(_) => {}
+                    None => {
+                        matched_by_call_id
+                            .insert((*call_id).to_string(), item.response_id.clone());
+                    }
+                }
+            }
+
+            if intersects_wanted && wanted.is_subset(&pending) {
+                match &unique_response_id {
+                    Some(existing_response_id) if existing_response_id != &item.response_id => {
+                        return Ok(None);
+                    }
+                    Some(_) => {}
+                    None => {
+                        unique_response_id = Some(item.response_id.clone());
+                        unique_response = Some(item);
+                    }
+                }
             }
         }
-        Ok(None)
+
+        if matched_by_call_id.len() == wanted.len() {
+            Ok(unique_response)
+        } else {
+            Ok(None)
+        }
     }
 }
 
