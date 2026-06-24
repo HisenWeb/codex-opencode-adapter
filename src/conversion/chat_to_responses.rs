@@ -3,7 +3,10 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::responses_to_chat::repair_history;
-use super::text::{arguments_text, as_text, canonicalize_json_string_if_parseable, reasoning_text};
+use super::text::{
+    arguments_text, as_text, canonicalize_json_string_if_parseable, reasoning_text,
+    split_leading_think_block,
+};
 use super::tool_context::{ToolContext, ToolKind};
 
 #[allow(clippy::too_many_arguments)] // All params map 1:1 to distinct JSON fields.
@@ -26,8 +29,14 @@ where
         .cloned()
         .unwrap_or_else(|| json!({}));
     let message = choice.get("message").cloned().unwrap_or_else(|| json!({}));
-    let content = message.get("content").map(as_text).unwrap_or_default();
-    let reasoning = reasoning_text(&message).unwrap_or_default();
+    let mut content = message.get("content").map(as_text).unwrap_or_default();
+    let mut reasoning = reasoning_text(&message).unwrap_or_default();
+    if reasoning.is_empty() {
+        if let Some((extracted_reasoning, answer)) = split_leading_think_block(&content) {
+            reasoning = extracted_reasoning;
+            content = answer;
+        }
+    }
     let response_id = format!("resp_{}", Uuid::new_v4().simple());
     let created_at = now_ts();
 
