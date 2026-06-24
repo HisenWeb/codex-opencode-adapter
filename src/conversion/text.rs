@@ -1,5 +1,8 @@
 use serde_json::Value;
 
+const THINK_OPEN_TAG: &str = concat!("<", "think", ">");
+const THINK_CLOSE_TAG: &str = concat!("</", "think", ">");
+
 pub fn compact_json(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
 }
@@ -148,6 +151,61 @@ pub fn canonicalize_json_string_if_parseable(value: &str) -> String {
     }
 }
 
+pub fn split_leading_think_block(text: &str) -> Option<(String, String)> {
+    let leading_ws_len = text.len() - text.trim_start().len();
+    let after_ws = &text[leading_ws_len..];
+    if !after_ws.starts_with(THINK_OPEN_TAG) {
+        return None;
+    }
+
+    let body_start = leading_ws_len + THINK_OPEN_TAG.len();
+    let close_relative = text[body_start..].find(THINK_CLOSE_TAG)?;
+    let close_start = body_start + close_relative;
+    let answer_start = close_start + THINK_CLOSE_TAG.len();
+
+    Some((
+        text[body_start..close_start].trim().to_string(),
+        strip_think_answer_separator(&text[answer_start..]).to_string(),
+    ))
+}
+
+pub fn strip_leading_think_open_tag(text: &str) -> Option<String> {
+    let leading_ws_len = text.len() - text.trim_start().len();
+    let after_ws = &text[leading_ws_len..];
+    after_ws
+        .strip_prefix(THINK_OPEN_TAG)
+        .map(|value| value.trim().to_string())
+}
+
+pub fn is_leading_think_prefix(text: &str) -> bool {
+    let leading_ws_len = text.len() - text.trim_start().len();
+    let after_ws = &text[leading_ws_len..];
+    after_ws.is_empty() || THINK_OPEN_TAG.starts_with(after_ws)
+}
+
+pub fn split_at_think_close(text: &str) -> Option<(String, String)> {
+    let close_start = text.find(THINK_CLOSE_TAG)?;
+    let answer_start = close_start + THINK_CLOSE_TAG.len();
+    Some((
+        text[..close_start].to_string(),
+        strip_think_answer_separator(&text[answer_start..]).to_string(),
+    ))
+}
+
+pub fn split_incomplete_think_close_suffix(text: &str) -> (&str, &str) {
+    for len in (1..THINK_CLOSE_TAG.len()).rev() {
+        if text.ends_with(&THINK_CLOSE_TAG[..len]) {
+            let split = text.len() - len;
+            return (&text[..split], &text[split..]);
+        }
+    }
+    (text, "")
+}
+
+fn strip_think_answer_separator(text: &str) -> &str {
+    text.trim_start_matches(['\r', '\n', '\t', ' '])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +303,32 @@ mod tests {
     fn reasoning_text_no_reasoning_returns_none() {
         let msg = json!({"content": "just a normal message"});
         assert!(reasoning_text(&msg).is_none());
+    }
+
+    #[test]
+    fn split_leading_think_block_extracts_reasoning_and_answer() {
+        let text = format!("  {THINK_OPEN_TAG} hidden reasoning {THINK_CLOSE_TAG}\n\nfinal answer");
+        let (reasoning, answer) = split_leading_think_block(&text).unwrap();
+        assert_eq!(reasoning, "hidden reasoning");
+        assert_eq!(answer, "final answer");
+    }
+
+    #[test]
+    fn split_leading_think_block_ignores_non_leading_block() {
+        let text = format!("answer first {THINK_OPEN_TAG}hidden{THINK_CLOSE_TAG}");
+        assert!(split_leading_think_block(&text).is_none());
+    }
+
+    #[test]
+    fn leading_think_prefix_detects_partial_open_tag() {
+        assert!(is_leading_think_prefix("  <th"));
+        assert!(!is_leading_think_prefix("  hello"));
+    }
+
+    #[test]
+    fn split_incomplete_think_close_suffix_keeps_partial_close_tag() {
+        let (emit, keep) = split_incomplete_think_close_suffix("reasoning</thi");
+        assert_eq!(emit, "reasoning");
+        assert_eq!(keep, "</thi");
     }
 }
