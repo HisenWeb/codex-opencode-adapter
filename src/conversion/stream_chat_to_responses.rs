@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use super::chat_to_responses::{completion_status, message_item, reasoning_item, response_shell};
 use super::responses_to_chat::repair_history;
-use super::text::{arguments_text, as_text, canonicalize_json_string_if_parseable, reasoning_text};
+use super::text::{
+    arguments_text, as_text, canonicalize_json_string_if_parseable, is_leading_think_prefix,
+    reasoning_text, split_at_think_close, split_incomplete_think_close_suffix,
+    split_leading_think_block, strip_leading_think_open_tag,
+};
 use super::tool_context::{ToolContext, ToolKind};
 
 pub type EmitFn = Box<dyn FnMut(&str, Value) -> anyhow::Result<()> + Send>;
@@ -35,6 +39,13 @@ impl StreamingToolCall {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ThinkBlockState {
+    Detecting,
+    InThink,
+    Done,
+}
+
 pub struct StreamAssembler {
     body: Value,
     model_alias: String,
@@ -59,6 +70,8 @@ pub struct StreamAssembler {
     text_done: bool,
     reasoning_done: bool,
     terminal_emitted: bool,
+    think_state: ThinkBlockState,
+    think_buffer: String,
 }
 
 impl StreamAssembler {
@@ -95,6 +108,8 @@ impl StreamAssembler {
             text_done: false,
             reasoning_done: false,
             terminal_emitted: false,
+            think_state: ThinkBlockState::Detecting,
+            think_buffer: String::new(),
         }
     }
 
@@ -139,15 +154,17 @@ impl StreamAssembler {
         for choice in choices {
             let delta = choice.get("delta").unwrap_or(&Value::Null);
             if let Some(text) = reasoning_text(delta) {
+                self.disable_leading_think_detection()?;
                 self.push_reasoning_delta(&text)?;
             }
             if let Some(content) = delta.get("content") {
                 let text = as_text(content);
                 if !text.is_empty() {
-                    self.push_text_delta(&text)?;
+                    self.accept_content_delta(&text)?;
                 }
             }
             if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
+                self.flush_pending_think_buffer()?;
                 if !self.reasoning.is_empty() && !self.reasoning_done {
                     self.finish_reasoning_item()?;
                 }
@@ -172,6 +189,7 @@ impl StreamAssembler {
         if self.terminal_emitted {
             return Ok(json!({}));
         }
+        self.flush_pending_think_buffer()?;
         if !self.reasoning.is_empty() {
             self.finish_reasoning_item()?;
         }
@@ -355,6 +373,94 @@ impl StreamAssembler {
             "response.output_item.added",
             json!({"type":"response.output_item.added","output_index":output_index,"item":item}),
         )
+    }
+
+    fn disable_leading_think_detection(&mut self) -> anyhow::Result<()> {
+        if self.think_state != ThinkBlockState::Done {
+            self.flush_pending_think_buffer()?;
+            self.think_state = ThinkBlockState::Done;
+        }
+        Ok(())
+    }
+
+    fn accept_content_delta(&mut self, text: &str) -> anyhow::Result<()> {
+        match self.think_state {
+            ThinkBlockState::Done => self.push_text_delta(text),
+            ThinkBlockState::Detecting => {
+                self.think_buffer.push_str(text);
+                if let Some((reasoning, answer)) = split_leading_think_block(&self.think_buffer) {
+                    if !reasoning.is_empty() {
+                        self.push_reasoning_delta(&reasoning)?;
+                    }
+                    self.think_buffer.clear();
+                    self.think_state = ThinkBlockState::Done;
+                    if !answer.is_empty() {
+                        self.push_text_delta(&answer)?;
+                    }
+                    return Ok(());
+                }
+                if let Some(reasoning_start) = strip_leading_think_open_tag(&self.think_buffer) {
+                    self.think_buffer.clear();
+                    self.think_state = ThinkBlockState::InThink;
+                    if !reasoning_start.is_empty() {
+                        self.accept_in_think_content(&reasoning_start)?;
+                    }
+                    return Ok(());
+                }
+                if is_leading_think_prefix(&self.think_buffer) {
+                    return Ok(());
+                }
+                let text = std::mem::take(&mut self.think_buffer);
+                self.think_state = ThinkBlockState::Done;
+                self.push_text_delta(&text)
+            }
+            ThinkBlockState::InThink => self.accept_in_think_content(text),
+        }
+    }
+
+    fn accept_in_think_content(&mut self, text: &str) -> anyhow::Result<()> {
+        self.think_buffer.push_str(text);
+        if let Some((reasoning, answer)) = split_at_think_close(&self.think_buffer) {
+            if !reasoning.is_empty() {
+                self.push_reasoning_delta(&reasoning)?;
+            }
+            self.think_buffer.clear();
+            self.think_state = ThinkBlockState::Done;
+            if !answer.is_empty() {
+                self.push_text_delta(&answer)?;
+            }
+            return Ok(());
+        }
+
+        let (emit, keep) = split_incomplete_think_close_suffix(&self.think_buffer);
+        let emit = emit.to_string();
+        let keep = keep.to_string();
+        if !emit.is_empty() {
+            self.push_reasoning_delta(&emit)?;
+        }
+        self.think_buffer = keep;
+        Ok(())
+    }
+
+    fn flush_pending_think_buffer(&mut self) -> anyhow::Result<()> {
+        match self.think_state {
+            ThinkBlockState::Detecting => {
+                if !self.think_buffer.is_empty() {
+                    let text = std::mem::take(&mut self.think_buffer);
+                    self.think_state = ThinkBlockState::Done;
+                    self.push_text_delta(&text)?;
+                }
+            }
+            ThinkBlockState::InThink => {
+                if !self.think_buffer.is_empty() {
+                    let reasoning = std::mem::take(&mut self.think_buffer);
+                    self.push_reasoning_delta(&reasoning)?;
+                }
+                self.think_state = ThinkBlockState::Done;
+            }
+            ThinkBlockState::Done => {}
+        }
+        Ok(())
     }
 
     fn push_reasoning_delta(&mut self, delta: &str) -> anyhow::Result<()> {
@@ -570,6 +676,7 @@ impl StreamAssembler {
     pub fn has_substantive_output(&self) -> bool {
         !self.content.trim().is_empty()
             || !self.reasoning.trim().is_empty()
+            || !self.think_buffer.trim().is_empty()
             || self.tool_calls.values().any(|call| {
                 call.added || !call.arguments.trim().is_empty() || !call.name.trim().is_empty()
             })
