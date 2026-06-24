@@ -34,7 +34,8 @@ pub fn response_content_part_to_chat_part(part: &Value) -> Option<Value> {
 }
 
 pub fn image_to_chat_content_part(part: &Value) -> Option<Value> {
-    image_url_object_from_part(part).map(|image_url| json!({"type":"image_url","image_url":image_url}))
+    image_url_object_from_part(part)
+        .map(|image_url| json!({"type":"image_url","image_url":image_url}))
 }
 
 pub fn file_to_chat_content_part(part: &Value) -> Option<Value> {

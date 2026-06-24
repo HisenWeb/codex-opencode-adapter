@@ -131,7 +131,9 @@ fn chat_response_content_array_extracts_text_and_keeps_json_fallback() {
     )
     .unwrap();
 
-    let text = response["output"][0]["content"][0]["text"].as_str().unwrap();
+    let text = response["output"][0]["content"][0]["text"]
+        .as_str()
+        .unwrap();
     assert!(text.contains("hello"));
     assert!(text.contains("image_url"));
 }
