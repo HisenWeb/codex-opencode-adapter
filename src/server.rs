@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
+use crate::codex_chat_history::{ensure_no_duplicate_call_outputs, validate_requested_call_ids};
 use crate::config::Config;
 use crate::conversion::{
     build_chat_payload, build_response, function_output_call_ids, StreamAssembler,
@@ -123,18 +124,23 @@ async fn complete_response(state: AppState, body: Value) -> Response {
     let previous = match previous_response(&state, &body) {
         Ok(previous) => previous,
         Err(message) => {
-            return error_response(StatusCode::BAD_REQUEST, "invalid_request_error", &message)
+            return responses_failed_response(&body, &model_alias, "invalid_tool_history", &message)
         }
     };
     let (payload, messages, _reverse, tool_ctx) =
         match build_chat_payload(&body, &model_upstream, previous.as_ref(), json!({})) {
             Ok(value) => value,
             Err(error) => {
-                return error_response(
-                    StatusCode::BAD_REQUEST,
-                    "invalid_request_error",
-                    &error.to_string(),
-                )
+                let message = error.to_string();
+                if is_history_error_message(&message) {
+                    return responses_failed_response(
+                        &body,
+                        &model_alias,
+                        "invalid_tool_history",
+                        &message,
+                    );
+                }
+                return error_response(StatusCode::BAD_REQUEST, "invalid_request_error", &message);
             }
         };
     if let Some(message) = find_unsupported_multimodal_input(&model_upstream, &payload) {
@@ -210,18 +216,23 @@ async fn stream_response(state: AppState, body: Value) -> Response {
     let previous = match previous_response(&state, &body) {
         Ok(previous) => previous,
         Err(message) => {
-            return error_response(StatusCode::BAD_REQUEST, "invalid_request_error", &message)
+            return early_stream_failed_response(body, model_alias, "invalid_tool_history", &message)
         }
     };
     let (payload, messages, _reverse, tool_ctx) =
         match build_chat_payload(&body, &model_upstream, previous.as_ref(), json!({})) {
             Ok(value) => value,
             Err(error) => {
-                return error_response(
-                    StatusCode::BAD_REQUEST,
-                    "invalid_request_error",
-                    &error.to_string(),
-                )
+                let message = error.to_string();
+                if is_history_error_message(&message) {
+                    return early_stream_failed_response(
+                        body,
+                        model_alias,
+                        "invalid_tool_history",
+                        &message,
+                    );
+                }
+                return error_response(StatusCode::BAD_REQUEST, "invalid_request_error", &message);
             }
         };
 
@@ -371,22 +382,41 @@ fn previous_response(
     state: &AppState,
     body: &Value,
 ) -> Result<Option<crate::state::StoredResponse>, String> {
+    let ids = function_output_call_ids(body).map_err(|e| e.to_string())?;
+    ensure_no_duplicate_call_outputs(&ids).map_err(|e| e.to_string())?;
+
     if let Some(previous_id) = body
         .get("previous_response_id")
         .and_then(Value::as_str)
         .filter(|v| !v.is_empty())
     {
-        return state.state.get(previous_id).map_err(|e| e.to_string());
+        let previous = state.state.get(previous_id).map_err(|e| e.to_string())?;
+        if let Some(previous) = previous.as_ref() {
+            validate_requested_call_ids(previous, &ids).map_err(|e| e.to_string())?;
+        } else if !ids.is_empty() {
+            return Err(format!(
+                "tool output has no matching stored response: {previous_id}"
+            ));
+        }
+        return Ok(previous);
     }
-    let ids = function_output_call_ids(body).map_err(|e| e.to_string())?;
+
     if ids.is_empty() {
-        Ok(None)
-    } else {
-        state
-            .state
-            .find_by_call_ids(&ids)
-            .map_err(|e| e.to_string())
+        return Ok(None);
     }
+
+    let previous = state
+        .state
+        .find_by_call_ids(&ids)
+        .map_err(|e| e.to_string())?;
+    let Some(previous) = previous else {
+        return Err(format!(
+            "unknown or ambiguous tool call id(s): {}",
+            ids.join(", ")
+        ));
+    };
+    validate_requested_call_ids(&previous, &ids).map_err(|e| e.to_string())?;
+    Ok(Some(previous))
 }
 
 fn authorize(config: &Config, headers: &HeaderMap) -> Result<(), Box<Response>> {
@@ -455,6 +485,24 @@ fn responses_failed_value(body: &Value, model: &str, kind: &str, message: &str) 
     })
 }
 
+fn early_stream_failed_response(
+    body: Value,
+    model_alias: String,
+    kind: &'static str,
+    message: &str,
+) -> Response {
+    let (tx, rx) =
+        tokio::sync::mpsc::unbounded_channel::<Result<axum::response::sse::Event, Infallible>>();
+    let response = responses_failed_value(&body, &model_alias, kind, message);
+    let event = json!({"type":"response.failed","response":response});
+    let _ = tx.send(Ok(axum::response::sse::Event::default()
+        .event("response.failed")
+        .data(event.to_string())));
+    let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
+    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    Sse::new(stream).into_response()
+}
+
 fn stream_failed_response(
     state: AppState,
     body: Value,
@@ -489,6 +537,15 @@ fn stream_failed_response(
     let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
     Sse::new(stream).into_response()
+}
+
+fn is_history_error_message(message: &str) -> bool {
+    message.contains("tool output")
+        || message.contains("tool call")
+        || message.contains("tool history")
+        || message.contains("duplicate tool")
+        || message.contains("unknown tool")
+        || message.contains("invalid tool")
 }
 
 fn upstream_stream_error_type(message: &str) -> &'static str {
