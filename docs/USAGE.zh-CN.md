@@ -4,7 +4,7 @@
 
 适配器使用 Rust 编写，基于 axum + tokio 异步运行时。
 
-完整文档入口见 [README.md](README.md)。真实验证手册见 [VALIDATION.zh-CN.md](VALIDATION.zh-CN.md)。
+完整文档入口见 [INDEX.md](INDEX.md)。真实验证手册见 [VALIDATION.zh-CN.md](VALIDATION.zh-CN.md)。
 
 ## 1. 配置分层
 
@@ -245,6 +245,6 @@ stateless_tool_history_bypass_state_lookup
 
 ## 参考
 
-- [Documentation index](README.md)
+- [Documentation index](INDEX.md)
 - [Codex Subagents](https://developers.openai.com/codex/subagents)
 - [Codex Configuration Reference](https://developers.openai.com/codex/config-reference)
