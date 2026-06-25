@@ -35,6 +35,12 @@ cargo run -- init --api-key "<你的 OpenCode Go API Key>"
 cargo run -- start
 ```
 
+或者直接用仓库里的开发脚本：
+
+```powershell
+./scripts/dev-run.ps1 -ApiKey "<你的 OpenCode Go API Key>"
+```
+
 如果这 3 步都正常，就直接进入真实使用；不要为了自用项目先把流程做得太重。
 
 对日常本地项目，核心命令就是：
@@ -106,6 +112,12 @@ cargo build --release
 
 cargo run -- init --api-key "<你的 OpenCode Go API Key>"
 cargo run -- start
+```
+
+如果你只是要在仓库里反复改代码并重启，优先用：
+
+```powershell
+./scripts/dev-run.ps1 -ApiKey "<你的 OpenCode Go API Key>"
 ```
 
 - 默认配置保存在当前项目的 `.codex-opencode-adapter.env`。

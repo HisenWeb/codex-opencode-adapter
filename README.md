@@ -59,6 +59,12 @@ cargo run -- init --api-key "<your-key>"
 cargo run -- start
 ```
 
+Or use the repo-local helper:
+
+```powershell
+./scripts/dev-run.ps1 -ApiKey "<your-key>"
+```
+
 ### Configuration
 
 `init` writes the default runtime settings into the current project's `.codex-opencode-adapter.env`.
