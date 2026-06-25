@@ -4,6 +4,8 @@
 
 适配器使用 Rust 编写，基于 axum + tokio 异步运行时。
 
+完整文档入口见 [README.md](README.md)。真实验证手册见 [VALIDATION.zh-CN.md](VALIDATION.zh-CN.md)。
+
 ## 1. 配置分层
 
 | 配置 | 正确位置 | 作用 |
@@ -201,7 +203,7 @@ tool_history_call_id_not_found
 stateless_tool_history_bypass_state_lookup
 ```
 
-完整说明见 [p1-continuation-diagnostics.md](p1-continuation-diagnostics.md)。
+完整说明见 [DIAGNOSTICS.md](DIAGNOSTICS.md)。
 
 ### 非流式上游错误
 
@@ -221,7 +223,28 @@ stateless_tool_history_bypass_state_lookup
 禁止并行启动多个代理、失败后自动重试、跑全模型矩阵、或使用旧 Mission 代理测试
 新 Bridge。
 
+## 11. 真实验证入口
+
+完成本地 mock 测试后，再进入真实 OpenCode Go / Codex subagent 验证。
+
+完整步骤见 [VALIDATION.zh-CN.md](VALIDATION.zh-CN.md)。
+
+真实验证应按顺序执行：
+
+1. 启动 adapter，并设置 `RUST_LOG=codex_opencode_adapter=debug`。
+2. 检查 `/health`。
+3. 检查 `/v1/models`。
+4. 验证 `/v1/responses` 非流式文本请求。
+5. 验证 `/v1/responses` streaming 文本请求。
+6. 验证 function call 与 tool output continuation。
+7. 验证 stateless continuation fallback。
+8. 验证 streamed tool-call。
+9. 记录真实模型 ID、响应 shape、stream terminal events 和 adapter diagnostics。
+
+不要一开始就跑完整子代理任务。先完成真实验证手册，再进入完整 Codex subagent 验证。
+
 ## 参考
 
+- [Documentation index](README.md)
 - [Codex Subagents](https://developers.openai.com/codex/subagents)
 - [Codex Configuration Reference](https://developers.openai.com/codex/config-reference)
