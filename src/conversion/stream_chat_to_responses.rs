@@ -356,8 +356,7 @@ impl StreamAssembler {
             "failed",
             None,
         );
-        response["error"] =
-            json!({"type":error_type,"message":message.chars().take(1000).collect::<String>()});
+        response["error"] = json!({"type":error_type,"code":error_type,"message":message.chars().take(1000).collect::<String>()});
         self.emit_event(
             "response.failed",
             json!({"type":"response.failed","response":response.clone()}),
@@ -680,7 +679,7 @@ impl StreamAssembler {
                 json!({"id":item_id,"type":"custom_tool_call","status":status,"call_id":call_id,"name":spec.name,"input":custom_tool_input_from_chat_arguments(arguments)})
             }
             Some(spec) if spec.kind == ToolKind::ToolSearch => {
-                json!({"type":"tool_search_call","status":status,"call_id":call_id,"execution":"client","arguments":parse_tool_arguments_object(arguments)})
+                json!({"id":item_id,"type":"tool_search_call","status":status,"call_id":call_id,"execution":"client","arguments":parse_tool_arguments_object(arguments)})
             }
             Some(spec) => {
                 let mut item = json!({"id":item_id,"type":"function_call","status":status,"call_id":call_id,"name":spec.name,"arguments":arguments});

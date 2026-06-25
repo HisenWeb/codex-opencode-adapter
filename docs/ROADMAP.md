@@ -12,12 +12,12 @@ The project is in the protocol-compatibility and validation phase.
 | Tool lifecycle and state replay | Implemented, narrow scope | Supports `previous_response_id`, unique pending-call fallback, stateless full-history continuation, and continuation diagnostics |
 | Reasoning output compatibility | Implemented for extraction/splitting | Reads upstream reasoning fields and leading `<think>...</think>` blocks; request-side provider-specific reasoning controls still need real validation |
 | Tool search compatibility | Implemented | `tool_search` has a dedicated schema and converts to/from Responses `tool_search_call` |
-| Multimodal input conversion | Implemented | Request-side image/file/audio conversion and text-only model guard are covered by mock/regression tests |
-| Non-stream upstream failure shape | Implemented, pending real validation | `/v1/responses` non-stream upstream HTTP errors return a Responses `status: failed` body while currently preserving upstream HTTP status |
+| Multimodal input conversion | Implemented, real validation passed | Request-side image/file/audio conversion, text-only model guard, and a real MiMo vision smoke path have been verified |
+| Non-stream upstream failure shape | Implemented, real validation passed | `/v1/responses` non-stream upstream HTTP errors return a Responses `status: failed` body while preserving upstream HTTP status |
 | Multimodal output generation | Planned | Current phase keeps text output reliable; image/audio/file output mapping is planned for later phases |
 | Other upstream providers | Planned | Current default target is OpenCode Go |
 | Mock integration tests | Implemented | L2 tests use mock upstream behavior and do not require external OpenCode Go calls |
-| Real OpenCode Go / Codex subagent validation | Pending | Must be verified with a real OpenCode Go API key and a real Codex subagent workflow |
+| Real OpenCode Go / Codex subagent validation | Implemented | Real `/v1/models`, text, stream, function-call, continuation, multimodal, and Codex subagent smoke validation completed on 2026-06-25 |
 
 ## Completed protocol work
 
@@ -46,7 +46,7 @@ Implemented in the current codebase:
 
 ## Multimodal compatibility completed
 
-Implemented in mock/regression coverage; real upstream validation is still pending:
+Implemented in mock/regression coverage and verified on the real upstream for the currently tested models:
 
 - Mixed text/image/file/audio Responses input conversion.
 - Anthropic-style base64 image source -> Chat `image_url` data URL.
@@ -56,43 +56,34 @@ Implemented in mock/regression coverage; real upstream validation is still pendi
 - Reactive upstream multimodal unsupported error detection.
 - Multimodal regression tests.
 
-## Known gaps before real validation
+## Known gaps after initial real validation
 
-These should be verified against real Codex subagent traffic before expanding the adapter:
+These should stay on the watch list before expanding the adapter further:
 
 - Some strict reasoning models may require a non-empty `reasoning_content` placeholder on assistant messages that contain `tool_calls`.
-- Non-stream upstream errors already return a Responses `status: failed` body, but the adapter currently preserves upstream HTTP status; real Codex validation must confirm whether non-2xx status breaks the subagent chain.
 - Streaming incomplete termination must be verified against Codex's exact event expectations.
 - Multimodal output mapping is not implemented until real upstream output shapes are observed.
 
-## P3-lite real validation
+## Next milestone
 
-Next planned milestone:
+Priority next step:
 
-- Start the adapter locally with a real OpenCode Go API key.
-- Verify `/v1/models` and basic `/v1/responses` non-stream requests.
-- Verify `/v1/responses` streaming requests.
-- Verify reasoning output with known DeepSeek/MiMo models.
-- Verify normal function-call round trip.
-- Verify streamed function-call round trip.
-- Verify custom tool-call round trip.
-- Verify tool-search call round trip.
-- Verify `function_call_output` / `custom_tool_call_output` / `tool_search_output` continuation through stored state and stateless full-history input.
-- Verify non-stream upstream failures do not break Codex subagent control flow. If they do, switch `/v1/responses` upstream failures to HTTP 200 with `response.status = failed`.
+- Keep real upstream smoke coverage easy to rerun through `scripts/run-real-smoke.ps1`.
+- Expand the real smoke suite from text/stream/function-call/continuation/multimodal basics to reasoning, streamed tool calls, custom tools, and tool search.
+- Decide whether some of those real checks should stay as ignored Rust tests or move into a separate manual/CI smoke layer.
 
-Detailed steps are in `docs/VALIDATION.zh-CN.md`.
+Detailed validation steps are in `docs/VALIDATION.zh-CN.md`, and the latest executed results are in `docs/REAL_VALIDATION_2026-06-25.zh-CN.md`.
 
-## P3-full Codex subagent validation
+## Follow-up Codex validation
 
-After P3-lite passes:
+After the repeatable smoke layer is stable:
 
 - Configure Codex subagent to call this adapter as `opencode-go/...` models.
 - Run a real text-only subagent task.
 - Run a real tool-using subagent task.
 - Run a real streaming tool-using subagent task.
-- Run a real multimodal input smoke test against a model believed to support vision.
-- Run a real text-only-model multimodal failure test and confirm the parent agent receives a protocol-valid Responses `failed` result rather than a broken provider error.
-- Record exact model IDs and observed OpenCode Go response shapes.
+- Run a broader set of real Codex tasks that exercise tool choice variation and longer continuation chains.
+- Record any model-specific quirks in output shape, reasoning fields, or stream behavior.
 
 ## Long-term multimodal output support
 
@@ -125,7 +116,7 @@ Candidate future upstream categories:
 
 ## Stabilization
 
-Only after real validation:
+After the initial real validation phase:
 
 - Patch concrete upstream shape mismatches found in P3.
 - Add regression tests for every real incompatibility found.

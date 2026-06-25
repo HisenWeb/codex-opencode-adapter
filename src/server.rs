@@ -205,8 +205,10 @@ async fn complete_response(state: AppState, body: Value) -> Response {
         |item| state.state.put(&item),
     ) {
         Ok(response) => Json(response).into_response(),
-        Err(error) => error_response(
+        Err(error) => responses_failed_response_with_status(
             StatusCode::INTERNAL_SERVER_ERROR,
+            &body,
+            &model_alias,
             "internal_error",
             &error.to_string(),
         ),
@@ -291,11 +293,19 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                 Ok(())
             }),
         );
-        let _ = assembler.start();
+        if let Err(error) = assembler.start() {
+            tracing::error!(error = %error, "failed to emit initial stream lifecycle events");
+            let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
+            return;
+        }
         let permit = match state.capacity.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
-                let _ = assembler.fail("rate_limit_error", "adapter concurrency limit reached");
+                if let Err(error) =
+                    assembler.fail("rate_limit_error", "adapter concurrency limit reached")
+                {
+                    tracing::error!(error = %error, "failed to emit rate-limit stream failure");
+                }
                 let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
                 return;
             }
@@ -325,7 +335,12 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                                         .unwrap_or_else(|| "upstream stream error".to_string());
                                     let kind = upstream_stream_error_type(&message);
                                     let display = upstream_stream_error_message(&message);
-                                    let _ = assembler.fail(kind, &display);
+                                    if let Err(error) = assembler.fail(kind, &display) {
+                                        tracing::error!(
+                                            error = %error,
+                                            "failed to emit upstream event:error stream failure"
+                                        );
+                                    }
                                     let _ = tx.send(Ok(
                                         axum::response::sse::Event::default().data("[DONE]")
                                     ));
@@ -333,7 +348,14 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                                 }
                                 if let Some(data) = data {
                                     if data.trim() == "[DONE]" {
-                                        let _ = assembler.finalize();
+                                        if let Err(error) = assembler.finalize() {
+                                            tracing::error!(
+                                                error = %error,
+                                                "failed to finalize stream after upstream [DONE]"
+                                            );
+                                            let _ = assembler
+                                                .fail("internal_error", &error.to_string());
+                                        }
                                         let _ = tx
                                             .send(Ok(axum::response::sse::Event::default()
                                                 .data("[DONE]")));
@@ -351,20 +373,44 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                                                 let kind = upstream_stream_error_type(&message);
                                                 let display =
                                                     upstream_stream_error_message(&message);
-                                                let _ = assembler.fail(kind, &display);
+                                                if let Err(error) = assembler.fail(kind, &display) {
+                                                    tracing::error!(
+                                                        error = %error,
+                                                        "failed to emit upstream JSON error stream failure"
+                                                    );
+                                                }
                                                 let _ = tx
                                                     .send(Ok(axum::response::sse::Event::default(
                                                     )
                                                     .data("[DONE]")));
                                                 return;
                                             }
-                                            let _ = assembler.accept(&value);
+                                            if let Err(error) = assembler.accept(&value) {
+                                                tracing::error!(
+                                                    error = %error,
+                                                    "failed to process upstream stream chunk"
+                                                );
+                                                let _ = assembler
+                                                    .fail("internal_error", &error.to_string());
+                                                let _ = tx
+                                                    .send(Ok(axum::response::sse::Event::default(
+                                                    )
+                                                    .data("[DONE]")));
+                                                return;
+                                            }
                                         }
                                         Err(error) => {
                                             let message = format!(
                                                 "failed to parse upstream SSE data as JSON: {error}"
                                             );
-                                            let _ = assembler.fail("upstream_error", &message);
+                                            if let Err(error) =
+                                                assembler.fail("upstream_error", &message)
+                                            {
+                                                tracing::error!(
+                                                    error = %error,
+                                                    "failed to emit upstream parse-error stream failure"
+                                                );
+                                            }
                                             let _ = tx
                                                 .send(Ok(axum::response::sse::Event::default()
                                                     .data("[DONE]")));
@@ -378,7 +424,12 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                             let message = error.to_string();
                             let kind = upstream_stream_error_type(&message);
                             let display = upstream_stream_error_message(&message);
-                            let _ = assembler.fail(kind, &display);
+                            if let Err(error) = assembler.fail(kind, &display) {
+                                tracing::error!(
+                                    error = %error,
+                                    "failed to emit network stream failure"
+                                );
+                            }
                             let _ =
                                 tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
                             return;
@@ -386,15 +437,32 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                     }
                 }
                 if assembler.has_finish_reason() {
-                    let _ = assembler.finalize();
+                    if let Err(error) = assembler.finalize() {
+                        tracing::error!(
+                            error = %error,
+                            "failed to finalize stream with finish_reason"
+                        );
+                        let _ = assembler.fail("internal_error", &error.to_string());
+                    }
                 } else if assembler.has_substantive_output() {
                     assembler.mark_truncated_as_length();
-                    let _ = assembler.finalize();
+                    if let Err(error) = assembler.finalize() {
+                        tracing::error!(
+                            error = %error,
+                            "failed to finalize truncated stream"
+                        );
+                        let _ = assembler.fail("internal_error", &error.to_string());
+                    }
                 } else {
-                    let _ = assembler.fail(
+                    if let Err(error) = assembler.fail(
                         "stream_truncated",
                         "Upstream stream ended before sending finish_reason",
-                    );
+                    ) {
+                        tracing::error!(
+                            error = %error,
+                            "failed to emit stream-truncated failure"
+                        );
+                    }
                 }
                 let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
             }
@@ -402,7 +470,12 @@ async fn stream_response(state: AppState, body: Value) -> Response {
                 let message = error.to_string();
                 let kind = upstream_stream_error_type(&message);
                 let display = upstream_stream_error_message(&message);
-                let _ = assembler.fail(kind, &display);
+                if let Err(error) = assembler.fail(kind, &display) {
+                    tracing::error!(
+                        error = %error,
+                        "failed to emit initial upstream stream failure"
+                    );
+                }
                 let _ = tx.send(Ok(axum::response::sse::Event::default().data("[DONE]")));
             }
         }

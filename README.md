@@ -26,6 +26,7 @@ Codex remains responsible for task roles, sandbox permissions, tool execution, r
 |---|---|
 | [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md) | Chinese setup, usage, and low-token troubleshooting guide. |
 | [docs/VALIDATION.zh-CN.md](docs/VALIDATION.zh-CN.md) | Real OpenCode Go and Codex validation checklist. |
+| [docs/REAL_VALIDATION_2026-06-25.zh-CN.md](docs/REAL_VALIDATION_2026-06-25.zh-CN.md) | Recorded real upstream and Codex subagent validation results from 2026-06-25. |
 | [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) | Runtime diagnostics and log interpretation. |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Compatibility scope, references, implementation map, and non-goals. |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Current status, known gaps, and validation roadmap. |
@@ -83,12 +84,21 @@ cargo test
 Real smoke test, requires `OPENCODE_GO_API_KEY`:
 
 ```bash
-OPENCODE_GO_API_KEY="your-key" cargo test --test test_e2e test_e2e_real_smoke -- --ignored
+OPENCODE_GO_API_KEY="your-key" cargo test --test test_e2e test_e2e_real_validation_suite -- --ignored --nocapture
+```
+
+PowerShell helper for the full real smoke suite:
+
+```powershell
+./scripts/run-real-smoke.ps1 `
+  -ApiKey "your-key" `
+  -TextModel "opencode-go/deepseek-v4-flash" `
+  -VisionModel "opencode-go/mimo-v2.5"
 ```
 
 ## Current status
 
-The text, tool, reasoning, stream, multimodal-input guard, and state-continuation paths are implemented in the mock/regression suite. Real OpenCode Go and Codex subagent validation is still pending.
+The text, tool, reasoning, stream, multimodal-input guard, and state-continuation paths are covered by mock/regression tests. Real OpenCode Go validation and Codex subagent smoke validation have also been completed; the next step is keeping that coverage repeatable via the scripted smoke suite above.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for status and next milestones.
 

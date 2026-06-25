@@ -105,6 +105,7 @@ where
                 }),
                 Some(ToolKind::ToolSearch) => json!({
                     "type": "tool_search_call",
+                    "id": format!("tsc_{}", call_id),
                     "call_id": call_id,
                     "execution": "client",
                     "arguments": parse_tool_arguments_object(&arguments),

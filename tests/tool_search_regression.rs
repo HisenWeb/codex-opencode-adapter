@@ -74,6 +74,7 @@ fn nonstream_tool_search_restores_response_item() {
         .iter()
         .find(|item| item["type"] == "tool_search_call")
         .unwrap();
+    assert_eq!(item["id"], "tsc_call_search");
     assert_eq!(item["call_id"], "call_search");
     assert_eq!(item["arguments"]["query"], "filesystem");
     assert_eq!(item["arguments"]["limit"], 3);
@@ -150,6 +151,7 @@ fn streaming_tool_search_does_not_emit_custom_input_events() {
         .iter()
         .find(|item| item["type"] == "tool_search_call")
         .unwrap();
+    assert_eq!(item["id"], done.1["item_id"]);
     assert_eq!(item["arguments"]["query"], "filesystem");
 }
 
