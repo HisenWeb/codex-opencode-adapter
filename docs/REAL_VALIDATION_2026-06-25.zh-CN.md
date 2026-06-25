@@ -206,7 +206,7 @@
 
 结论：
 
-- stateless full-history continuation 已真实验证通过
+- stateless full-history continuation 在当前已记录验证环境下表现正常，但仍建议在 clean-state 条件下持续复验
 
 ### 9. 流式 function call
 
@@ -322,11 +322,10 @@
 
 ## 仍待继续验证
 
-本次还没有完成的真实验证项：
+本次还没有完成或仍需扩大的真实验证项：
 
-- `custom_tool_call`
-- `tool_search_call`
-- 真实 Codex subagent 端到端接入
+- 更广范围的真实 Codex subagent 端到端任务验证
+- clean-state 条件下的 stateless full-history continuation 复验
 - 上游故意报错时，真实 Codex 客户端是否会被非 2xx `/v1/responses` 断链
 - 更广模型范围下的 reasoning / multimodal 兼容性差异
 
@@ -334,10 +333,10 @@
 
 建议按这个顺序继续：
 
-1. 真实验证 `custom_tool_call`
-2. 真实验证 `tool_search_call`
-3. 用真实 Codex subagent 直接接入本 adapter
-4. 故意制造上游错误，判断 `/v1/responses` 是否需要改成 HTTP 200 + `status: failed`
+1. 用真实 Codex subagent 直接接入本 adapter
+2. 在 clean-state 条件下复验 stateless full-history continuation
+3. 故意制造上游错误，判断 `/v1/responses` 是否需要改成 HTTP 200 + `status: failed`
+4. 扩大更多模型的 reasoning / multimodal 差异验证
 
 ## 结论
 

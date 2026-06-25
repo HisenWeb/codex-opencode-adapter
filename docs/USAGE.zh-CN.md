@@ -138,7 +138,7 @@ cargo test
 3. 确认可用角色包含：
    - `oss_flash`
    - `oss_kimi`
-   - `oss_deepseek`
+   - `oss_glm`
    - `oss_mimo`
 
 如果仍是 `oss_flash_support`、`oss_kimi_rapid` 或 `oss_*_investigator`，说明
@@ -164,10 +164,10 @@ codex-opencode-adapter
 
 | Agent | 模型 | Sandbox | 适合 |
 |---|---|---|---|
-| `oss_flash` | DeepSeek V4 Flash | read-only | 简单查询、文档整理 |
-| `oss_kimi` | Kimi K2.6 | read-only | 代码导航、只读分析 |
-| `oss_deepseek` | DeepSeek V4 Pro | workspace-write | 边界明确的实现 |
-| `oss_mimo` | MiMo V2.5 Pro | workspace-write | 边界明确的实现或复核 |
+| `oss_flash` | DeepSeek V4 Flash | workspace-write | 简单文本任务与轻量修改 |
+| `oss_kimi` | Kimi K2.7 Code | workspace-write | 复杂文本任务与综合实现 |
+| `oss_glm` | GLM 5.2 | workspace-write | 复杂文本分析、审查与实现 |
+| `oss_mimo` | MiMo V2.5 | workspace-write | 简单多模态任务与轻量实现 |
 
 调查、实现、审查等职责由父 Codex 每次派工决定。Bridge 不派工、不执行工具，
 也不判断任务是否完成。

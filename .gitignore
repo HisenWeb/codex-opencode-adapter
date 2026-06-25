@@ -2,5 +2,8 @@
 target/
 Cargo.lock
 *.db
+*.sqlite
 *.sqlite3
 *.log
+.codex-opencode/
+tmp_*

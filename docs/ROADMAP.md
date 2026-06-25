@@ -17,7 +17,8 @@ The project is in the protocol-compatibility and validation phase.
 | Multimodal output generation | Planned | Current phase keeps text output reliable; image/audio/file output mapping is planned for later phases |
 | Other upstream providers | Planned | Current default target is OpenCode Go |
 | Mock integration tests | Implemented | L2 tests use mock upstream behavior and do not require external OpenCode Go calls |
-| Real OpenCode Go / Codex subagent validation | Implemented | Real `/v1/models`, text, stream, function-call, continuation, multimodal, and Codex subagent smoke validation completed on 2026-06-25 |
+| Real OpenCode Go upstream smoke | Implemented | Real `/v1/models`, text, stream, function-call, continuation, multimodal, custom tool, and tool-search smoke validation completed on 2026-06-25 |
+| Real Codex subagent E2E | Partial | Project custom subagent smoke has been exercised, but broader end-to-end Codex task validation is still pending |
 
 ## Completed protocol work
 

@@ -17,18 +17,18 @@ command = "cmd.exe"
 args = ["/d", "/s", "/c", "echo codex-opencode-local"]
 timeout_ms = 1000
 
-[agents.oss_deepseek]
-description = "OpenCode Go DeepSeek worker"
-config_file = ".codex/agents/oss-deepseek.toml"
+[agents.oss_glm]
+description = "OpenCode Go GLM worker"
+config_file = ".codex/agents/oss-glm.toml"
 
 [agents.oss_mimo]
 description = "OpenCode Go MiMo worker"
 config_file = ".codex/agents/oss-mimo.toml"
 
 [agents.oss_kimi]
-description = "Read-only OpenCode Go Kimi worker"
+description = "OpenCode Go Kimi worker"
 config_file = ".codex/agents/oss-kimi.toml"
 
 [agents.oss_flash]
-description = "Read-only low-cost OpenCode Go Flash worker"
+description = "Low-cost OpenCode Go Flash worker"
 config_file = ".codex/agents/oss-flash.toml"

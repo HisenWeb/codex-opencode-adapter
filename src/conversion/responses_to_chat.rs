@@ -60,6 +60,9 @@ pub fn build_chat_payload(
         .collect::<Vec<_>>();
     let mut messages = if !outputs.is_empty() {
         if let Some(previous) = previous {
+            let incoming =
+                trim_self_contained_continuation_suffix(body, &context, &output_call_ids)?
+                    .unwrap_or(incoming);
             tracing::debug!(
                 event = "tool_output_adopted",
                 previous_response_id = %previous.response_id,
@@ -174,6 +177,81 @@ pub fn build_chat_payload(
     }
 
     Ok((payload, messages, context.reverse_names.clone(), context))
+}
+
+fn trim_self_contained_continuation_suffix(
+    body: &Value,
+    context: &ToolContext,
+    output_call_ids: &[String],
+) -> Result<Option<Vec<Value>>, HistoryError> {
+    if output_call_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let Some(Value::Array(items)) = body.get("input") else {
+        return Ok(None);
+    };
+
+    let wanted: HashSet<&str> = output_call_ids.iter().map(String::as_str).collect();
+    let mut seen_calls = HashSet::new();
+    let mut matched_outputs = HashSet::new();
+    let mut last_output_index = None;
+
+    for (index, item) in items.iter().enumerate() {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        let kind = obj.get("type").and_then(Value::as_str).unwrap_or("");
+
+        if matches!(
+            kind,
+            "function_call" | "custom_tool_call" | "tool_search_call"
+        ) {
+            if let Some(call_id) = obj
+                .get("call_id")
+                .or_else(|| obj.get("id"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+            {
+                seen_calls.insert(call_id.to_string());
+            }
+            continue;
+        }
+
+        if !matches!(
+            kind,
+            "function_call_output" | "custom_tool_call_output" | "tool_search_output"
+        ) {
+            continue;
+        }
+
+        let Some(call_id) = obj
+            .get("call_id")
+            .or_else(|| obj.get("tool_call_id"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+
+        if wanted.contains(call_id) && seen_calls.contains(call_id) {
+            matched_outputs.insert(call_id.to_string());
+            last_output_index = Some(index);
+        }
+    }
+
+    if matched_outputs.len() != wanted.len() {
+        return Ok(None);
+    }
+
+    let suffix = items
+        .iter()
+        .skip(last_output_index.map(|index| index + 1).unwrap_or(0))
+        .cloned()
+        .collect::<Vec<_>>();
+    let suffix_body = json!({ "input": suffix });
+    let (messages, _outputs) = extract_request_with_context(&suffix_body, context)?;
+    Ok(Some(messages))
 }
 
 pub fn extract_request(body: &Value) -> Result<(Vec<Value>, Vec<Value>), HistoryError> {

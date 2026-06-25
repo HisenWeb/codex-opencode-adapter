@@ -97,7 +97,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for status and next milestones.
 | File | Purpose |
 |---|---|
 | [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md) | Short self-use setup and troubleshooting guide. |
-| [docs/REAL_VALIDATION_2026-06-25.zh-CN.md](docs/REAL_VALIDATION_2026-06-25.zh-CN.md) | Latest real upstream and Codex subagent validation record. |
+| [docs/REAL_VALIDATION_2026-06-25.zh-CN.md](docs/REAL_VALIDATION_2026-06-25.zh-CN.md) | Latest real upstream smoke and partial Codex validation record. |
 | [docs/VALIDATION.zh-CN.md](docs/VALIDATION.zh-CN.md) | Full manual validation checklist. |
 | [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) | Runtime diagnostics and log interpretation. |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Compatibility scope and non-goals. |
