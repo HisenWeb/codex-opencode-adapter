@@ -83,7 +83,7 @@ cargo test
 Real upstream smoke:
 
 ```bash
-OPENCODE_GO_API_KEY="your-key" cargo test --test test_e2e test_e2e_real_validation_suite -- --ignored --nocapture
+OPENCODE_GO_API_KEY="your-key" cargo test --test e2e_real_smoke test_e2e_real_validation_suite -- --ignored --nocapture
 ```
 
 ## Current status

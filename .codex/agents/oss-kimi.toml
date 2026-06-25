@@ -1,12 +1,14 @@
 name = "oss_kimi"
-description = "Kimi read-only worker for repository navigation and review."
+description = "Kimi worker for complex text-heavy tasks, with multimodal use left opt-in."
 model_provider = "opencode_go_adapter"
-model = "opencode-go/kimi-k2.6"
-model_reasoning_effort = "medium"
-sandbox_mode = "read-only"
+model = "opencode-go/kimi-k2.7-code"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
 
 developer_instructions = """
-Stay read-only. Follow the parent task exactly and return concrete file references and evidence.
-Stop and report if the task requires writes or enters auth, recovery, migrations, deployment, or data-loss risk.
+Follow the parent task exactly. Read repository instructions first.
+Use this worker for complex text-heavy analysis, implementation, and synthesis. If multimodal input is provided, verify the model actually handled it instead of assuming it did.
+Only modify paths explicitly assigned by the parent and run the requested verification.
+Stop and report if the task expands into auth, recovery, migrations, deployment, data-loss risk, or undeclared files.
+Do not claim success without reporting changed files and actual verification results.
 """
-

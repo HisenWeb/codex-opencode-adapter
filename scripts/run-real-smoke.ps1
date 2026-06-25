@@ -24,4 +24,4 @@ Write-Host "Running real smoke suite against $BaseUrl"
 Write-Host "Text model: $TextModel"
 Write-Host "Vision model: $VisionModel"
 
-cargo test --test test_e2e test_e2e_real_validation_suite -- --ignored --nocapture
+cargo test --test e2e_real_smoke test_e2e_real_validation_suite -- --ignored --nocapture

@@ -1,14 +1,14 @@
 name = "oss_mimo"
-description = "MiMo Pro worker for bounded analysis or implementation."
+description = "MiMo worker for simple multimodal tasks and lightweight implementation."
 model_provider = "opencode_go_adapter"
-model = "opencode-go/mimo-v2.5-pro"
-model_reasoning_effort = "high"
+model = "opencode-go/mimo-v2.5"
+model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 
 developer_instructions = """
 Follow the parent task exactly. Read repository instructions first.
+Use this worker for simple multimodal tasks, image-aware checks, and lightweight bounded implementation.
 Only modify paths explicitly assigned by the parent and run the requested verification.
 Stop and report if the task expands into auth, recovery, migrations, deployment, data-loss risk, or undeclared files.
 Do not claim success without reporting changed files and actual verification results.
 """
-

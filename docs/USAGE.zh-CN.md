@@ -240,7 +240,36 @@ stateless_tool_history_bypass_state_lookup
 
 当前 `/v1/responses` 非流式上游 HTTP 错误会返回 Responses `status: failed` body，同时保留上游 HTTP status。真实 Codex subagent 验证时需要确认非 2xx status 是否会断链。
 
-## 10. Token 控制纪律
+## 10. 上游模型更新时怎么处理
+
+如果 OpenCode Go 的模型列表有更新，不要先改代码，先看：
+
+```powershell
+$headers = @{ Authorization = "Bearer codex-opencode-local" }
+(Invoke-RestMethod http://127.0.0.1:4010/v1/models -Headers $headers).data.id
+```
+
+处理顺序保持简单：
+
+1. 如果只是新增模型：
+   直接把 `.codex/agents/*.toml` 里的 `model` 改成新的 `opencode-go/<model-id>`。
+2. 如果旧模型下线或改名：
+   先以 `/v1/models` 的真实返回为准，再改 agent 配置。
+3. 如果模型能力变了：
+   改完后跑一次最小真实 smoke：
+
+```powershell
+./scripts/run-real-smoke.ps1 -ApiKey "<你的 OpenCode Go API Key>"
+```
+
+对自用项目，不建议维护一份手写固定模型表。最稳的做法就是：
+
+- 以 `/v1/models` 为准
+- 改 agent TOML
+- 跑一次最小 smoke
+- 能用就继续
+
+## 11. Token 控制纪律
 
 排障顺序固定为：
 
@@ -254,7 +283,7 @@ stateless_tool_history_bypass_state_lookup
 禁止并行启动多个代理、失败后自动重试、跑全模型矩阵、或使用旧 Mission 代理测试
 新 Bridge。
 
-## 11. 真实验证入口
+## 12. 真实验证入口
 
 完成本地 mock 测试后，再进入真实 OpenCode Go / Codex subagent 验证。
 

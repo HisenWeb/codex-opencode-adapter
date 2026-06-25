@@ -1,12 +1,12 @@
 name = "oss_flash"
-description = "Low-cost read-only worker for simple lookup and documentation analysis."
+description = "Low-cost DeepSeek Flash worker for simple text tasks and lightweight edits."
 model_provider = "opencode_go_adapter"
 model = "opencode-go/deepseek-v4-flash"
 model_reasoning_effort = "low"
-sandbox_mode = "read-only"
+sandbox_mode = "workspace-write"
 
 developer_instructions = """
-Stay read-only. Handle only simple bounded lookup, inventory, summary, and documentation tasks.
-Return concrete evidence and escalate rather than guessing.
+Follow the parent task exactly. Use this worker for simple text-only lookup, inventory, summary, documentation work, and lightweight edits.
+Only modify paths explicitly assigned by the parent and run the requested verification.
+Return concrete evidence, keep changes small and bounded, and escalate rather than guessing.
 """
-
