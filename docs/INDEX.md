@@ -1,4 +1,4 @@
-# Documentation index
+﻿# Documentation index
 
 Docs are grouped by purpose.
 
@@ -9,6 +9,12 @@ Docs are grouped by purpose.
 | [DIAGNOSTICS.md](DIAGNOSTICS.md) | Runtime diagnostics and log interpretation. |
 | [COMPATIBILITY.md](COMPATIBILITY.md) | Compatibility scope, references, implementation mapping, and non-goals. |
 | [ROADMAP.md](ROADMAP.md) | Current status, known gaps, and future validation plan. |
+
+Also see:
+
+| Path | Purpose |
+|---|---|
+| [resources/templates/](../resources/templates/README.md) | Canonical OSS agent template files (embedded by the binary at compile time). |
 
 Normal use:
 

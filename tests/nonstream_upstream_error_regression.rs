@@ -107,6 +107,7 @@ async fn start_adapter(upstream_addr: SocketAddr) -> SocketAddr {
         state_ttl_seconds: 21_600,
         timeout_seconds: 30,
         max_request_bytes: 8 * 1024 * 1024,
+        max_concurrency: 10,
     };
     let client = OpenCodeGoClient::new(
         &config.upstream_base,

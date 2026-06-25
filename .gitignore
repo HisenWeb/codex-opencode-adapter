@@ -1,4 +1,5 @@
 .env
+.codex-opencode-adapter.env
 target/
 Cargo.lock
 *.db

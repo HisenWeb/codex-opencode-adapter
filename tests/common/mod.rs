@@ -28,6 +28,7 @@ pub async fn start_adapter(upstream_addr: SocketAddr, local_token: Option<String
         state_ttl_seconds: 21_600,
         timeout_seconds: 30,
         max_request_bytes: 8 * 1024 * 1024,
+        max_concurrency: 10,
     };
 
     let client = OpenCodeGoClient::new(
@@ -104,6 +105,7 @@ pub async fn start_real_adapter(config: &RealSmokeConfig) -> SocketAddr {
         state_ttl_seconds: 21_600,
         timeout_seconds: 60,
         max_request_bytes: 8 * 1024 * 1024,
+        max_concurrency: 4,
     };
 
     let client = OpenCodeGoClient::new(

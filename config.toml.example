@@ -13,8 +13,8 @@ stream_max_retries = 0
 stream_idle_timeout_ms = 120000
 
 [model_providers.opencode_go_adapter.auth]
-command = "cmd.exe"
-args = ["/d", "/s", "/c", "echo codex-opencode-local"]
+command = "codex-opencode-adapter"
+args = ["auth", "print-local-token"]
 timeout_ms = 1000
 
 [agents.oss_glm]
