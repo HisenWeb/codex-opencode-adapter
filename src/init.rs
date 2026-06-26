@@ -16,9 +16,9 @@ const USER_DIR_NAME: &str = ".codex-opencode-adapter";
 const INIT_LOG_FILE: &str = "init.log";
 
 const OSS_FLASH_TEMPLATE: &str = include_str!("../resources/templates/oss-flash.toml");
-const OSS_GLM_TEMPLATE: &str = include_str!("../resources/templates/oss-glm.toml");
-const OSS_KIMI_TEMPLATE: &str = include_str!("../resources/templates/oss-kimi.toml");
 const OSS_MIMO_TEMPLATE: &str = include_str!("../resources/templates/oss-mimo.toml");
+const OSS_MINIMAX_TEMPLATE: &str = include_str!("../resources/templates/oss-minimax.toml");
+const OSS_PRO_TEMPLATE: &str = include_str!("../resources/templates/oss-pro.toml");
 
 pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
     let project = ProjectPaths::from_current_dir()?;
@@ -58,16 +58,16 @@ pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
             OSS_FLASH_TEMPLATE.as_bytes().to_vec(),
         ),
         PendingWrite::new(
-            project.agents_dir.join("oss-glm.toml"),
-            OSS_GLM_TEMPLATE.as_bytes().to_vec(),
-        ),
-        PendingWrite::new(
-            project.agents_dir.join("oss-kimi.toml"),
-            OSS_KIMI_TEMPLATE.as_bytes().to_vec(),
-        ),
-        PendingWrite::new(
             project.agents_dir.join("oss-mimo.toml"),
             OSS_MIMO_TEMPLATE.as_bytes().to_vec(),
+        ),
+        PendingWrite::new(
+            project.agents_dir.join("oss-minimax.toml"),
+            OSS_MINIMAX_TEMPLATE.as_bytes().to_vec(),
+        ),
+        PendingWrite::new(
+            project.agents_dir.join("oss-pro.toml"),
+            OSS_PRO_TEMPLATE.as_bytes().to_vec(),
         ),
     ];
 

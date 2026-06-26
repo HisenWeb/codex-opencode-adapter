@@ -58,7 +58,7 @@ cargo run -- start
 |---|---|---|
 | `model_providers.opencode_go_adapter` | `%USERPROFILE%\.codex\config.toml` | 注册 Codex 可调用的模型服务 |
 | `.codex-opencode-adapter.env` | 当前项目根目录 | 保存项目级 API Key、端口、本地 token、SQLite 路径 |
-| Agent TOML | 项目 `.codex\agents\*.toml` | 定义 `oss_flash`、`oss_kimi` 等子代理 |
+| Agent TOML | 项目 `.codex\agents\*.toml` | 定义 `oss_flash`、`oss_pro` 等子代理 |
 
 Codex 会扫描项目级 Agent TOML，但会忽略项目 `.codex/config.toml` 中的
 `model_providers`。配置放错时会出现：
@@ -158,9 +158,9 @@ cargo test
 2. 打开 `D:\AI-Tools\codex-opencode-adapter`。
 3. 确认可用角色包含：
    - `oss_flash`
-   - `oss_kimi`
-   - `oss_glm`
    - `oss_mimo`
+   - `oss_minimax`
+   - `oss_pro`
 
 如果仍是 `oss_flash_support`、`oss_kimi_rapid` 或 `oss_*_investigator`，说明
 打开的是旧项目或旧配置仍在生效。
@@ -188,9 +188,9 @@ codex-opencode-adapter
 | 角色 | 上游模型 | Sandbox | 适用场景 |
 |---|---|---|---|
 | `oss_flash` | DeepSeek V4 Flash | workspace-write | 简单文本任务与轻量修改 |
-| `oss_kimi` | Kimi K2.7 Code | workspace-write | 复杂文本任务与综合实现 |
-| `oss_glm` | GLM 5.2 | workspace-write | 复杂文本分析、审查与实现 |
 | `oss_mimo` | MiMo V2.5 | workspace-write | 简单多模态任务与轻量实现 |
+| `oss_minimax` | Minimax M3 | workspace-write | 截图、界面与其他偏视觉任务 |
+| `oss_pro` | DeepSeek V4 Pro | workspace-write | 复杂文本分析、审查与实现 |
 
 调查、实现、审查等职责由父 Codex 每次派工决定。Bridge 不派工、不执行工具，
 也不判断任务是否完成。

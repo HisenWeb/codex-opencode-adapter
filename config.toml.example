@@ -17,18 +17,18 @@ command = "codex-opencode-adapter"
 args = ["auth", "print-local-token"]
 timeout_ms = 1000
 
-[agents.oss_glm]
-description = "OpenCode Go GLM worker"
-config_file = ".codex/agents/oss-glm.toml"
-
 [agents.oss_mimo]
 description = "OpenCode Go MiMo worker"
 config_file = ".codex/agents/oss-mimo.toml"
 
-[agents.oss_kimi]
-description = "OpenCode Go Kimi worker"
-config_file = ".codex/agents/oss-kimi.toml"
-
 [agents.oss_flash]
 description = "Low-cost OpenCode Go Flash worker"
 config_file = ".codex/agents/oss-flash.toml"
+
+[agents.oss_minimax]
+description = "OpenCode Go Minimax worker"
+config_file = ".codex/agents/oss-minimax.toml"
+
+[agents.oss_pro]
+description = "OpenCode Go DeepSeek Pro worker"
+config_file = ".codex/agents/oss-pro.toml"

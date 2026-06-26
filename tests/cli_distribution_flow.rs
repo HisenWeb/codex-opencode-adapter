@@ -28,9 +28,9 @@ fn init_writes_project_files_and_auth_prints_local_token() {
 
     for name in [
         "oss-flash.toml",
-        "oss-glm.toml",
-        "oss-kimi.toml",
         "oss-mimo.toml",
+        "oss-minimax.toml",
+        "oss-pro.toml",
     ] {
         assert!(
             sandbox

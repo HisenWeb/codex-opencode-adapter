@@ -12,10 +12,10 @@ This directory holds the canonical copy of every OSS subagent configuration temp
 
 | File | Agent | Model | Reasoning effort |
 |---|---|---|---|
-| oss-flash.toml | oss_flash | opencode-go/deepseek-v4-flash | low |
-| oss-glm.toml | oss_glm | opencode-go/glm-5.2 | high |
-| oss-kimi.toml | oss_kimi | opencode-go/kimi-k2.7-code | high |
+| oss-flash.toml | oss_flash | opencode-go/deepseek-v4-flash | medium |
 | oss-mimo.toml | oss_mimo | opencode-go/mimo-v2.5 | medium |
+| oss-minimax.toml | oss_minimax | opencode-go/minimax-m3 | high |
+| oss-pro.toml | oss_pro | opencode-go/deepseek-v4-pro | high |
 
 ## Usage from Rust
 

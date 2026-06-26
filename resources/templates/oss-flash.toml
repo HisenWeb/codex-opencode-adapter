@@ -8,7 +8,7 @@ name = "oss_flash"
 description = "Low-cost DeepSeek Flash worker for simple text tasks, quick checks, and lightweight edits."
 model_provider = "opencode_go_adapter"
 model = "opencode-go/deepseek-v4-flash"
-model_reasoning_effort = "low"
+model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 
 developer_instructions = """

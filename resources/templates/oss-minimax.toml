@@ -1,13 +1,13 @@
-﻿# Codex OSS subagent template — managed by codex-opencode-adapter
+# Codex OSS subagent template — managed by codex-opencode-adapter
 # This file serves as both a runtime agent config and a canonical template.
 # The main program can overlay this content as a default via resources/templates/.
 #
 # Reference: https://developers.openai.com/codex/subagents
 
-name = "oss_kimi"
-description = "Kimi multimodal worker for screenshots, UI, images, and other visual materials, with text capability as support."
+name = "oss_minimax"
+description = "Minimax multimodal worker for screenshots, UI, images, and other visual materials, with text capability as support."
 model_provider = "opencode_go_adapter"
-model = "opencode-go/kimi-k2.7-code"
+model = "opencode-go/minimax-m3"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 
