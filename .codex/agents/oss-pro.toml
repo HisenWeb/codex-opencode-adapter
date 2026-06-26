@@ -1,4 +1,4 @@
-﻿# Codex OSS subagent template — managed by codex-opencode-adapter
+# Codex OSS subagent template — managed by codex-opencode-adapter
 # This file serves as both a runtime agent config and a canonical template.
 # The main program can overlay this content as a default via resources/templates/.
 #
