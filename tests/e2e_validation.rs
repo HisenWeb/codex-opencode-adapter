@@ -1,4 +1,4 @@
-mod common;
+﻿mod common;
 
 use codex_opencode_adapter::config::Config;
 use codex_opencode_adapter::project::sign_local_token;
@@ -9,7 +9,7 @@ use common::mock_upstream::start_mock_upstream;
 use common::{adapter_url, start_adapter};
 use serde_json::json;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
@@ -266,8 +266,9 @@ async fn dual_project_http_isolation() {
         },
     );
     let app_state = AppState {
-        projects,
+        projects: Arc::new(RwLock::new(projects)),
         capacity: Arc::new(Semaphore::new(10)),
+        config_overrides: Default::default(),
     };
     let app = server::router(app_state);
 

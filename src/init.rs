@@ -3,7 +3,7 @@ use crate::config::{
     DEFAULT_HOST, DEFAULT_MAX_CONCURRENCY, DEFAULT_MAX_REQUEST_BYTES, DEFAULT_STATE_DB,
     DEFAULT_STATE_TTL_SECONDS, DEFAULT_TIMEOUT_SECONDS,
 };
-use crate::project::{generate_project_id, remember_active_project, ProjectPaths, ProjectRegistry};
+use crate::project::{generate_project_id, ProjectPaths, ProjectRegistry};
 use anyhow::{anyhow, Context};
 
 use std::fs::{self, OpenOptions};
@@ -96,7 +96,6 @@ pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
 
     fs::create_dir_all(&project.state_dir)
         .with_context(|| format!("failed to create {}", project.state_dir.display()))?;
-    remember_active_project(&project.root)?;
     logger.log("init completed successfully")?;
     println!("Initialization complete. Next: codex-opencode-adapter run");
     Ok(())

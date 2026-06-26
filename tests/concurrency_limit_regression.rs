@@ -1,13 +1,13 @@
 use axum::extract::State as AxumState;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use codex_opencode_adapter::config::Config;
+use codex_opencode_adapter::config::{Config, ConfigOverrides};
 use codex_opencode_adapter::server::{self, AppState, ProjectRuntime};
 use codex_opencode_adapter::state::StateStore;
 use codex_opencode_adapter::upstream::OpenCodeGoClient;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, Notify, Semaphore};
 use uuid::Uuid;
@@ -221,8 +221,9 @@ async fn start_adapter(
         },
     );
     let app_state = AppState {
-        projects,
+        projects: Arc::new(RwLock::new(projects)),
         capacity: Arc::new(Semaphore::new(max_concurrency)),
+        config_overrides: ConfigOverrides::default(),
     };
     let app = server::router(app_state);
 

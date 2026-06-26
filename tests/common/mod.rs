@@ -1,8 +1,8 @@
-#![allow(dead_code)]
+﻿#![allow(dead_code)]
 
 pub mod mock_upstream;
 
-use codex_opencode_adapter::config::Config;
+use codex_opencode_adapter::config::{Config, ConfigOverrides};
 use codex_opencode_adapter::project::sign_local_token;
 use codex_opencode_adapter::server::{self, AppState, ProjectRuntime};
 use codex_opencode_adapter::state::StateStore;
@@ -10,7 +10,7 @@ use codex_opencode_adapter::upstream::OpenCodeGoClient;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -49,8 +49,7 @@ pub async fn start_adapter(upstream_addr: SocketAddr, local_token: Option<String
         &config.upstream_base,
         &config.upstream_key,
         config.timeout_seconds,
-    )
-    .unwrap();
+    ).unwrap();
     let state = StateStore::new(&config.state_db, config.state_ttl_seconds).unwrap();
     let capacity = Arc::new(Semaphore::new(10));
 
@@ -63,7 +62,7 @@ pub async fn start_adapter(upstream_addr: SocketAddr, local_token: Option<String
             state,
         },
     );
-    let app_state = AppState { projects, capacity };
+    let app_state = AppState { projects: Arc::new(RwLock::new(projects)), capacity, config_overrides: ConfigOverrides::default() };
     let app = server::router(app_state);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -164,7 +163,7 @@ pub async fn start_real_adapter(config: &RealSmokeConfig) -> SocketAddr {
             state,
         },
     );
-    let app_state = AppState { projects, capacity };
+    let app_state = AppState { projects: Arc::new(RwLock::new(projects)), capacity, config_overrides: ConfigOverrides::default() };
     let app = server::router(app_state);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -270,4 +269,76 @@ pub fn parse_sse_events(body: &str) -> Vec<(String, Value)> {
         }
     }
     events
+}
+
+// ---------------------------------------------------------------------------
+// Multi-project adapter helpers (Req 4 & 5)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct ProjectConfig {
+    pub project_id: String,
+    pub upstream_addr: SocketAddr,
+    pub upstream_key: String,
+    pub raw_token: Option<String>,
+}
+
+/// Start an adapter that serves multiple projects on a single port.
+/// Returns (addr, map_of_project_id -> signed_token).
+pub async fn start_multi_project_adapter(
+    project_configs: Vec<ProjectConfig>,
+    max_concurrency: usize,
+) -> (SocketAddr, HashMap<String, String>) {
+    let mut projects = HashMap::new();
+    let mut tokens = HashMap::new();
+
+    for cfg in project_configs {
+        let temp_dir = std::env::temp_dir();
+        let db_name = format!("test_e2e_mp_{}.sqlite", Uuid::new_v4());
+        let db_path = temp_dir.join(db_name);
+
+        let raw_token = cfg.raw_token
+            .unwrap_or_else(|| format!("codex-test-raw-{}", Uuid::new_v4().simple()));
+        let signed_token = sign_local_token(&cfg.project_id, &raw_token);
+
+        let config = Config {
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            upstream_base: format!("http://{}", cfg.upstream_addr),
+            upstream_key: cfg.upstream_key,
+            local_token: Some(raw_token),
+            state_db: db_path.to_string_lossy().to_string(),
+            state_ttl_seconds: 21_600,
+            timeout_seconds: 30,
+            max_request_bytes: 8 * 1024 * 1024,
+            max_concurrency,
+        };
+
+        let client = OpenCodeGoClient::new(
+            &config.upstream_base,
+            &config.upstream_key,
+            config.timeout_seconds,
+        ).unwrap();
+        let state = StateStore::new(&config.state_db, config.state_ttl_seconds).unwrap();
+
+        projects.insert(cfg.project_id.clone(), ProjectRuntime {
+            config,
+            client,
+            state,
+        });
+        tokens.insert(cfg.project_id, signed_token);
+    }
+
+    let capacity = Arc::new(Semaphore::new(max_concurrency));
+    let app_state = AppState { projects: Arc::new(RwLock::new(projects)), capacity, config_overrides: ConfigOverrides::default() };
+    let app = server::router(app_state);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (addr, tokens)
 }

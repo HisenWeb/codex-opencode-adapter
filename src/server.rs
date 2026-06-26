@@ -1,4 +1,4 @@
-use axum::extract::State;
+﻿use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response, Sse};
 use axum::routing::{get, post};
@@ -7,12 +7,13 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::codex_chat_history::{ensure_no_duplicate_call_outputs, validate_requested_call_ids};
-use crate::config::Config;
+use crate::config::{Config, ConfigOverrides};
 use crate::conversion::{
     build_chat_payload, build_response, function_output_call_ids, StreamAssembler,
 };
@@ -20,7 +21,7 @@ use crate::media_guard::{
     find_unsupported_multimodal_input, is_multimodal_unsupported_error,
     unsupported_multimodal_error_message,
 };
-use crate::project::{parse_project_id_from_token, validate_signed_token};
+use crate::project::{current_environment, parse_project_id_from_token, read_project_env, registry_dir_path, validate_signed_token, ProjectRegistry, PROJECT_ENV_FILENAME};
 use crate::state::{now_ts, StateStore};
 use crate::upstream::{
     extract_error_message, parse_chat_sse_bytes, sse_data_from_block, sse_event_from_block,
@@ -36,8 +37,9 @@ pub struct ProjectRuntime {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub projects: HashMap<String, ProjectRuntime>,
+    pub projects: Arc<RwLock<HashMap<String, ProjectRuntime>>>,
     pub capacity: Arc<Semaphore>,
+    pub config_overrides: ConfigOverrides,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -47,6 +49,7 @@ pub fn router(state: AppState) -> Router {
         .route("/models", get(models))
         .route("/v1/responses", post(responses))
         .route("/responses", post(responses))
+        .route("/admin/refresh", post(admin_refresh))
         .with_state(state)
 }
 
@@ -55,17 +58,22 @@ async fn health() -> Json<Value> {
 }
 
 async fn models(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let project_id = match authorize(&state, &headers) {
-        Ok(pid) => pid,
-        Err(response) => return *response,
-    };
-    let Some(runtime) = state.projects.get(&project_id) else {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "project_not_found",
-            "Project not found",
-        )
-        .into_response();
+    let runtime = {
+        let projects = state.projects.read().unwrap();
+        let project_id = match authorize(&projects, &headers) {
+            Ok(pid) => pid,
+            Err(response) => return *response,
+        };
+        match projects.get(&project_id) {
+            Some(r) => r.clone(),
+            None => {
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "project_not_found",
+                    &format!("Project {project_id} is registered but not loaded. Call POST /admin/refresh to reload."),
+                ).into_response();
+            }
+        }
     };
     match runtime.client.models().await {
         Ok(raw) => {
@@ -89,17 +97,22 @@ async fn models(State(state): State<AppState>, headers: HeaderMap) -> Response {
 }
 
 async fn responses(State(state): State<AppState>, headers: HeaderMap, body: String) -> Response {
-    let project_id = match authorize(&state, &headers) {
-        Ok(pid) => pid,
-        Err(response) => return *response,
-    };
-    let Some(runtime) = state.projects.get(&project_id).cloned() else {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "project_not_found",
-            "Project not found",
-        )
-        .into_response();
+    let runtime = {
+        let projects = state.projects.read().unwrap();
+        let project_id = match authorize(&projects, &headers) {
+            Ok(pid) => pid,
+            Err(response) => return *response,
+        };
+        match projects.get(&project_id) {
+            Some(r) => r.clone(),
+            None => {
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "project_not_found",
+                    &format!("Project {project_id} is registered but not loaded. Call POST /admin/refresh to reload."),
+                ).into_response();
+            }
+        }
     };
     if body.is_empty() || body.len() > runtime.config.max_request_bytes {
         return error_response(
@@ -558,7 +571,10 @@ fn previous_response(
     Ok(Some(previous))
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<String, Box<Response>> {
+fn authorize(
+    projects: &HashMap<String, ProjectRuntime>,
+    headers: &HeaderMap,
+) -> Result<String, Box<Response>> {
     let auth_header = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -566,19 +582,19 @@ fn authorize(state: &AppState, headers: &HeaderMap) -> Result<String, Box<Respon
             Box::new(error_response(
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
-                "Missing Authorization header",
+                "Missing Authorization header. Provide a valid Bearer token.",
             ))
         })?;
     let raw_token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
         Box::new(error_response(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
-            "Invalid Authorization format",
+            "Invalid Authorization format. Expected 'Bearer <token>'.",
         ))
     })?;
     // Try HMAC-signed token
     if let Some(pid) = parse_project_id_from_token(raw_token) {
-        if let Some(runtime) = state.projects.get(&pid) {
+        if let Some(runtime) = projects.get(&pid) {
             if let Some(ref local_token) = runtime.config.local_token {
                 if !local_token.is_empty()
                     && validate_signed_token(raw_token, local_token).is_some()
@@ -591,9 +607,90 @@ fn authorize(state: &AppState, headers: &HeaderMap) -> Result<String, Box<Respon
     Err(Box::new(error_response(
         StatusCode::UNAUTHORIZED,
         "unauthorized",
-        "Unauthorized",
+        "Invalid or expired token. Make sure you are using the correct LOCAL_TOKEN for this project.",
     )))
 }
+
+async fn admin_refresh(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Response {
+    // Auth: accept any valid project bearer token
+    let auth_ok = {
+        let projects = state.projects.read().unwrap();
+        authorize(&projects, &headers).is_ok()
+    };
+    if !auth_ok {
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "Invalid or missing token. Provide a valid project bearer token.",
+        );
+    }
+    let reg_dir = match registry_dir_path() {
+        Ok(d) => d,
+        Err(e) => return Json(json!({"status":"error","message": e.to_string()})).into_response(),
+    };
+    let registry = ProjectRegistry::load(&reg_dir);
+
+    let mut projects = state.projects.write().unwrap();
+    let mut added = Vec::new();
+    let mut skipped = Vec::new();
+
+    for (project_id, entry) in &registry.projects {
+        if projects.contains_key(project_id) {
+            skipped.push(project_id.clone());
+            continue;
+        }
+
+        let root = PathBuf::from(&entry.root);
+        let env_path = root.join(PROJECT_ENV_FILENAME);
+        if !env_path.exists() {
+            tracing::warn!("refresh: project {project_id} missing env file, skipping");
+            continue;
+        }
+
+        let project_env = match read_project_env(&env_path) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("refresh: cannot read env for {project_id}: {e}");
+                continue;
+            }
+        };
+        let env = current_environment();
+        let config = match Config::from_sources(&project_env, &env, state.config_overrides.clone()) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("refresh: bad config for {project_id}: {e}");
+                continue;
+            }
+        };
+        let state_db_path = root.join(&config.state_db);
+        let store = match StateStore::new(state_db_path.display().to_string(), config.state_ttl_seconds) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("refresh: cannot create state for {project_id}: {e}");
+                continue;
+            }
+        };
+        let client = match OpenCodeGoClient::new(
+            &config.upstream_base,
+            &config.upstream_key,
+            config.timeout_seconds,
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("refresh: cannot create client for {project_id}: {e}");
+                continue;
+            }
+        };
+        projects.insert(project_id.clone(), ProjectRuntime { config, client, state: store });
+        added.push(project_id.clone());
+    }
+
+    Json(json!({"status":"ok","added":added,"already_loaded":skipped})).into_response()
+}
+
 
 fn strip_model_prefix(model: &str) -> Result<String, &'static str> {
     let Some(rest) = model.strip_prefix("opencode-go/") else {

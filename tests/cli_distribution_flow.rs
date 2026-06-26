@@ -1,4 +1,4 @@
-use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
+﻿use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::json;
@@ -176,7 +176,7 @@ fn auth_run_and_start_require_init() {
     let output = sandbox.run(vec!["auth", "print-local-token"]);
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains("unable to locate initialized project"),
+        stderr(&output).contains("No OpenCode adapter projects found"),
         "auth stderr was: {}",
         stderr(&output)
     );
@@ -185,7 +185,7 @@ fn auth_run_and_start_require_init() {
         let output = sandbox.run(args);
         assert!(!output.status.success());
         assert!(
-            stderr(&output).contains("no projects found in registry; run init first"),
+            stderr(&output).contains("No projects found in registry"),
             "run/start stderr was: {}",
             stderr(&output)
         );
@@ -245,7 +245,7 @@ fn auth_rejects_recovered_project_when_registry_mismatches_env() {
     );
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains("unable to locate initialized project"),
+        stderr(&output).contains("registry check failed"),
         "auth stderr was: {}",
         stderr(&output)
     );
@@ -276,11 +276,20 @@ fn check_uses_project_env_and_succeeds() {
     });
     std::thread::sleep(std::time::Duration::from_millis(50));
 
+    // Register project in registry, then override env with mock upstream
+    assert_success(&sandbox.run(["init", "--api-key", "test-api-key"]));
+    let init_env = fs::read_to_string(sandbox.project().join(".codex-opencode-adapter.env")).unwrap();
+    let proj_id = init_env.lines()
+        .find_map(|l| l.strip_prefix("CODEX_OPENCODE_PROJECT_ID="))
+        .unwrap();
+    let init_token = init_env.lines()
+        .find_map(|l| l.strip_prefix("CODEX_OPENCODE_LOCAL_TOKEN="))
+        .unwrap();
+
     fs::write(
         sandbox.project().join(".codex-opencode-adapter.env"),
         format!(
-            "OPENCODE_GO_API_KEY=test-api-key\nCODEX_OPENCODE_LOCAL_TOKEN={token}\nCODEX_OPENCODE_PROJECT_ID=test-check-project\nCODEX_OPENCODE_HOST=127.0.0.1\nCODEX_OPENCODE_PORT={port}\n",
-            token = local_token.as_str(),
+            "OPENCODE_GO_API_KEY=test-api-key\nCODEX_OPENCODE_LOCAL_TOKEN={init_token}\nCODEX_OPENCODE_PROJECT_ID={proj_id}\nCODEX_OPENCODE_HOST=127.0.0.1\nCODEX_OPENCODE_PORT={port}\n",
             port = addr.port()
         ),
     )
@@ -375,6 +384,103 @@ fn dual_project_isolation() {
     );
 }
 
+
+// ---------------------------------------------------------------------------
+// Req 2: external auth multi-project must fail
+#[test]
+fn dual_project_external_auth_must_not_silently_succeed() {
+    let sandbox = TestSandbox::new("dual-ext-auth-req2");
+    let proj_a = sandbox.root().join("proj_a");
+    fs::create_dir_all(&proj_a).unwrap();
+    assert_success(&sandbox.run_in(&proj_a, ["init", "--api-key", "key-a"]));
+    let proj_b = sandbox.root().join("proj_b");
+    fs::create_dir_all(&proj_b).unwrap();
+    assert_success(&sandbox.run_in(&proj_b, ["init", "--api-key", "key-b"]));
+    let external_dir = sandbox.root().join("external");
+    fs::create_dir_all(&external_dir).unwrap();
+    let output = sandbox.run_in_with_env(
+        &external_dir,
+        ["auth", "print-local-token"],
+        [("CODEX_THREAD_ID", "")],
+    );
+    assert!(
+        !output.status.success(),
+        "dual-project external auth must not silently return a token; gap: active-project fallback"
+    );
+}
+
+#[test]
+fn dual_project_external_auth_can_use_recent_explicit_project_activity() {
+    let sandbox = TestSandbox::new("dual-ext-auth-active-ttl");
+    let proj_a = sandbox.root().join("proj_a");
+    fs::create_dir_all(&proj_a).unwrap();
+    assert_success(&sandbox.run_in(&proj_a, ["init", "--api-key", "key-a"]));
+    let proj_b = sandbox.root().join("proj_b");
+    fs::create_dir_all(&proj_b).unwrap();
+    assert_success(&sandbox.run_in(&proj_b, ["init", "--api-key", "key-b"]));
+
+    let direct_a = sandbox.run_in(&proj_a, ["auth", "print-local-token"]);
+    assert_success(&direct_a);
+    let token_a = stdout(&direct_a).trim().to_string();
+
+    let external_dir = sandbox.root().join("external-after-active");
+    fs::create_dir_all(&external_dir).unwrap();
+    let output = sandbox.run_in_with_env(
+        &external_dir,
+        ["auth", "print-local-token"],
+        [("CODEX_THREAD_ID", "")],
+    );
+    assert_success(&output);
+    assert_eq!(stdout(&output).trim(), token_a);
+}
+
+// ---------------------------------------------------------------------------
+// Req 3, path 1: CODEX_OPENCODE_PROJECT_ID env var recovery
+#[test]
+fn auth_recovery_via_env_var_project_id() {
+    let sandbox = TestSandbox::new("auth-env-recovery-req3");
+    assert_success(&sandbox.run(["init", "--api-key", "test-api-key"]));
+    let direct = sandbox.run(["auth", "print-local-token"]);
+    assert_success(&direct);
+    let direct_token = stdout(&direct).trim().to_string();
+    let env_text =
+        fs::read_to_string(sandbox.project().join(".codex-opencode-adapter.env")).unwrap();
+    let project_id = env_text
+        .lines()
+        .find_map(|line| line.strip_prefix("CODEX_OPENCODE_PROJECT_ID="))
+        .unwrap()
+        .to_string();
+    let external_dir = sandbox.root().join("external");
+    fs::create_dir_all(&external_dir).unwrap();
+    let recovered = sandbox.run_in_with_env(
+        &external_dir,
+        ["auth", "print-local-token"],
+        [("CODEX_OPENCODE_PROJECT_ID", &project_id)],
+    );
+    assert_success(&recovered);
+    assert_eq!(stdout(&recovered).trim(), direct_token);
+}
+
+// ---------------------------------------------------------------------------
+// Req 3, path 4: Active project multi-project fallback
+#[test]
+fn single_project_external_auth_succeeds_via_fallback() {
+    let sandbox = TestSandbox::new("single-external-fallback");
+    assert_success(&sandbox.run(["init", "--api-key", "test-api-key"]));
+    let direct = sandbox.run(["auth", "print-local-token"]);
+    assert_success(&direct);
+    let direct_token = stdout(&direct).trim().to_string();
+    // External dir with no context -> single-project constrained fallback (Priority 4)
+    let external_dir = sandbox.root().join("external");
+    fs::create_dir_all(&external_dir).unwrap();
+    let output = sandbox.run_in_with_env(
+        &external_dir,
+        ["auth", "print-local-token"],
+        [("CODEX_THREAD_ID", "")],
+    );
+    assert_success(&output);
+    assert_eq!(stdout(&output).trim(), direct_token);
+}
 async fn models_handler(
     headers: HeaderMap,
     expected_token: Arc<String>,

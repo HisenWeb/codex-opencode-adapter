@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context};
+﻿use anyhow::{anyhow, Context};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -6,10 +6,12 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const PROJECT_ENV_FILENAME: &str = ".codex-opencode-adapter.env";
 const REGISTRY_FILENAME: &str = "project-registry.toml";
 const ACTIVE_PROJECT_FILENAME: &str = "active-project.toml";
+const ACTIVE_PROJECT_TTL_SECONDS: i64 = 300;
 
 /// Generate a deterministic short hex hash from an input string.
 pub fn hex_hash(input: &str) -> String {
@@ -90,6 +92,8 @@ pub struct ProjectRegistry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ActiveProject {
     project_id: String,
+    #[serde(default)]
+    updated_at: Option<i64>,
 }
 
 impl ProjectRegistryEntry {
@@ -163,19 +167,10 @@ pub struct ProjectPaths {
 }
 
 impl ProjectPaths {
-    /// Find project from current directory via ancestor walk.
-    /// If that fails, recover the runtime project from Codex thread metadata.
+    /// Resolve project using the multi-priority strategy.
+    /// See [`resolve_project`] for the full resolution order.
     pub fn from_current_dir() -> anyhow::Result<Self> {
-        let cwd = std::env::current_dir().context("failed to resolve current directory")?;
-        let discovered = Self::discover_from(&cwd);
-        if discovered.env_file.exists() {
-            return Ok(discovered);
-        }
-        Self::from_codex_runtime_context().ok_or_else(|| {
-            anyhow!(
-                "unable to locate initialized project for adapter auth; run codex-opencode-adapter init from the project root, or start the Codex thread from an initialized project"
-            )
-        })
+        resolve_project()
     }
 
     /// Find project rooted exactly at the current directory (used by init).
@@ -204,21 +199,7 @@ impl ProjectPaths {
         Self::from_root(start.to_path_buf())
     }
 
-    fn from_codex_runtime_context() -> Option<Self> {
-        let ids = codex_thread_ids();
-        let codex_home = codex_home_dir()?;
-        let thread_project = if ids.is_empty() {
-            None
-        } else {
-            find_cwd_in_process_manager(&codex_home, &ids)
-                .or_else(|| find_cwd_in_sessions(&codex_home, &ids))
-        };
-        thread_project.or_else(active_project_root).and_then(|cwd| {
-            let paths = Self::discover_from(&cwd);
-            validate_recovered_project(&paths).ok()?;
-            Some(paths)
-        })
-    }
+
 }
 
 pub fn remember_active_project(root: &Path) -> anyhow::Result<()> {
@@ -232,10 +213,29 @@ pub fn remember_active_project(root: &Path) -> anyhow::Result<()> {
     fs::create_dir_all(&registry_dir)?;
     let active = ActiveProject {
         project_id: project_id.to_string(),
+        updated_at: Some(now_ts()),
     };
     let contents = toml_edit::ser::to_string_pretty(&active)?;
     fs::write(registry_dir.join(ACTIVE_PROJECT_FILENAME), contents)?;
     Ok(())
+}
+
+fn now_ts() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+fn active_project_root(registry: &ProjectRegistry) -> Option<PathBuf> {
+    let registry_dir = registry_dir_path().ok()?;
+    let contents = fs::read_to_string(registry_dir.join(ACTIVE_PROJECT_FILENAME)).ok()?;
+    let active: ActiveProject = toml_edit::de::from_str(&contents).ok()?;
+    let updated_at = active.updated_at?;
+    if now_ts().saturating_sub(updated_at) > ACTIVE_PROJECT_TTL_SECONDS {
+        return None;
+    }
+    registry.resolve_root(&active.project_id)
 }
 
 fn codex_thread_ids() -> Vec<String> {
@@ -335,27 +335,113 @@ fn find_cwd_in_session_file(path: &Path) -> Option<PathBuf> {
     })
 }
 
-fn active_project_root() -> Option<PathBuf> {
-    let registry_dir = registry_dir_path().ok()?;
-    let contents = fs::read_to_string(registry_dir.join(ACTIVE_PROJECT_FILENAME)).ok()?;
-    let active: ActiveProject = toml_edit::de::from_str(&contents).ok()?;
-    let registry = ProjectRegistry::load(&registry_dir);
-    registry.resolve_root(&active.project_id)
+/// Resolve the current project using a multi-priority strategy:
+///
+/// 1. **`CODEX_OPENCODE_PROJECT_ID` env var** — explicit registry lookup.
+/// 2. **cwd / ancestor walk** — look for `.codex-opencode-adapter.env` upward.
+/// 3. **Codex thread/session context** — recover cwd from process_manager or session files.
+/// 4. **Constrained fallback** — single registered project only.
+///
+/// Returns a clear, actionable error when resolution is ambiguous or no project exists.
+pub fn resolve_project() -> anyhow::Result<ProjectPaths> {
+    let reg_dir = registry_dir_path()?;
+    let registry = ProjectRegistry::load(&reg_dir);
+
+    // Priority 1: Explicit CODEX_OPENCODE_PROJECT_ID
+    if let Ok(pid_value) = std::env::var("CODEX_OPENCODE_PROJECT_ID") {
+        let pid = pid_value.trim().to_string();
+        if !pid.is_empty() {
+            if let Some(root) = registry.resolve_root(&pid) {
+                let paths = ProjectPaths::from_root(root);
+                validate_recovered_project(&paths)?;
+                return Ok(paths);
+            }
+            return Err(anyhow!(
+                concat!(
+                "CODEX_OPENCODE_PROJECT_ID is set to \"{pid}\" but no matching project was found in the registry.\n",
+                " Run 'codex-opencode-adapter init' from the project root to register it."
+            )
+            ));
+        }
+    }
+
+    // Priority 2: cwd / ancestor walk
+    let cwd = std::env::current_dir()
+        .context("failed to resolve current working directory")?;
+    let discovered = ProjectPaths::discover_from(&cwd);
+    if discovered.env_file.exists() {
+        validate_recovered_project(&discovered)
+            .context("found project env file but registry check failed")?;
+        return Ok(discovered);
+    }
+
+    // Priority 3: Codex thread/session context
+    let thread_ids = codex_thread_ids();
+    if let Some(home) = codex_home_dir().as_ref() {
+        if !thread_ids.is_empty() {
+            if let Some(thread_cwd) = find_cwd_in_process_manager(home, &thread_ids)
+                .or_else(|| find_cwd_in_sessions(home, &thread_ids))
+            {
+                let thread_paths = ProjectPaths::discover_from(&thread_cwd);
+                if thread_paths.env_file.exists() {
+                    validate_recovered_project(&thread_paths)
+                        .context("found project via Codex thread context but registry check failed")?;
+                    return Ok(thread_paths);
+                }
+            }
+        }
+    }
+
+    // Priority 4: Short-lived active project marker. This exists for Codex
+    // provider auth calls that currently run without cwd/thread context.
+    if let Some(root) = active_project_root(&registry) {
+        let paths = ProjectPaths::from_root(root);
+        validate_recovered_project(&paths)?;
+        tracing::info!("using recently active project for context-free provider auth");
+        return Ok(paths);
+    }
+
+    // Priority 5: Constrained fallback -- single registered project only
+    if registry.projects.is_empty() {
+        return Err(anyhow!(
+            concat!(
+            "No OpenCode adapter projects found.\n", " Run 'codex-opencode-adapter init' from your project root to create one."
+        )
+        ));
+    }
+    if registry.projects.len() == 1 {
+        let (pid, entry) = registry.projects.iter().next().unwrap();
+        let root = PathBuf::from(&entry.root);
+        let paths = ProjectPaths::from_root(root);
+        validate_recovered_project(&paths)?;
+        tracing::info!("using the only registered project: {pid}");
+        return Ok(paths);
+    }
+
+    // Multiple projects with no context -> clear error with guidance
+    let project_ids: Vec<&str> = registry.projects.keys().map(|k| k.as_str()).collect();
+    Err(anyhow!(
+        concat!(
+        "Multiple OpenCode adapter projects are registered, but no project context was found.\n",
+        " Registered projects: {}\n", " To fix this, set CODEX_OPENCODE_PROJECT_ID=<project_id>, run from a project ", "directory, or start Codex from within an initialized project directory."
+    ),
+        project_ids.join(", ")
+    ))
 }
 
 fn validate_recovered_project(paths: &ProjectPaths) -> anyhow::Result<()> {
-    anyhow::ensure!(paths.env_file.exists(), "recovered project has no env file");
+    anyhow::ensure!(paths.env_file.exists(), "project has no env file");
     let project_env = read_project_env(&paths.env_file)?;
     let project_id = project_env
         .get("CODEX_OPENCODE_PROJECT_ID")
-        .ok_or_else(|| anyhow!("CODEX_OPENCODE_PROJECT_ID is missing in recovered project env"))?;
+        .ok_or_else(|| anyhow!("CODEX_OPENCODE_PROJECT_ID is missing in project env"))?;
     let registry = ProjectRegistry::load(&registry_dir_path()?);
     let registered_root = registry
         .resolve_root(project_id)
-        .ok_or_else(|| anyhow!("recovered project is not registered"))?;
+        .ok_or_else(|| anyhow!("project is not registered in the registry"))?;
     anyhow::ensure!(
         same_path(&registered_root, &paths.root),
-        "recovered project root does not match registry"
+        "project root does not match registry entry"
     );
     Ok(())
 }
