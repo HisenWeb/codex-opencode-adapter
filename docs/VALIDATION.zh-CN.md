@@ -26,12 +26,10 @@ cargo test
 单独开一个终端运行：
 
 ```powershell
-$env:OPENCODE_GO_API_KEY = "<你的 OpenCode Go API Key>"
-$env:CODEX_OPENCODE_LOCAL_TOKEN = "codex-opencode-local"
-$env:CODEX_OPENCODE_PORT = "4010"
+codex-opencode-adapter init --api-key "<你的 OpenCode Go API Key>"
 $env:CODEX_OPENCODE_MAX_CONCURRENCY = "1"
 $env:RUST_LOG = "codex_opencode_adapter=debug"
-cargo run --release
+codex-opencode-adapter start
 ```
 
 第一轮真实验证建议把并发设为 `1`。串行链路稳定后再提高并发。
@@ -53,18 +51,19 @@ status = ok
 检查模型列表：
 
 ```powershell
-$headers = @{ Authorization = "Bearer codex-opencode-local" }
-(Invoke-RestMethod http://127.0.0.1:4010/v1/models -Headers $headers).data.id
+$token = codex-opencode-adapter auth print-local-token
+$headers = @{ Authorization = "Bearer $token" }
+$model = ((Invoke-RestMethod http://127.0.0.1:4010/v1/models -Headers $headers).data.id | Select-Object -First 1)
+$model
 ```
 
-记录准备测试的真实模型 ID。
+记录准备测试的模型 ID。它应带 `opencode_adapter/<project_key>/opencode-go/<id>` 前缀；后续请求都复用 `$model`。
 
 ## 3. 非流式文本 smoke
 
 ```powershell
-$headers = @{ Authorization = "Bearer codex-opencode-local" }
 $body = @{
-  model = "opencode-go/deepseek-v4-flash"
+  model = $model
   input = "Reply with exactly: adapter-ok"
   stream = $false
 } | ConvertTo-Json -Depth 20
@@ -80,7 +79,7 @@ Invoke-RestMethod http://127.0.0.1:4010/v1/responses `
 
 - `object = response`
 - `status = completed`
-- `model` 仍带 `opencode-go/` 前缀
+- `model` 仍是带 `opencode_adapter/<project_key>/opencode-go/` 前缀的 routed model
 - 输出文本包含 `adapter-ok`
 - 如果上游返回 usage，adapter 响应中也保留 usage shape
 
@@ -88,13 +87,13 @@ Invoke-RestMethod http://127.0.0.1:4010/v1/responses `
 
 ```powershell
 $body = @{
-  model = "opencode-go/deepseek-v4-flash"
+  model = $model
   input = "Reply with exactly: stream-ok"
   stream = $true
 } | ConvertTo-Json -Depth 20
 
 curl.exe -N `
-  -H "Authorization: Bearer codex-opencode-local" `
+  -H "Authorization: Bearer $token" `
   -H "Content-Type: application/json" `
   -d $body `
   http://127.0.0.1:4010/v1/responses
@@ -122,9 +121,8 @@ response.completed
 请求：
 
 ```powershell
-$headers = @{ Authorization = "Bearer codex-opencode-local" }
 $body = @{
-  model = "opencode-go/deepseek-v4-flash"
+  model = $model
   input = "Call the run tool with cmd set to echo tool-ok. Do not answer directly."
   stream = $false
   tools = @(
@@ -164,7 +162,7 @@ $response | ConvertTo-Json -Depth 50
 ```powershell
 $call = $response.output | Where-Object { $_.type -eq "function_call" } | Select-Object -First 1
 $continueBody = @{
-  model = "opencode-go/deepseek-v4-flash"
+  model = $model
   previous_response_id = $response.id
   input = @(
     @{

@@ -50,15 +50,15 @@ cargo run -- start
 
 `check` 主要用于排障，`auth print-local-token` 主要给 provider auth helper 调用，不是日常手工入口。
 
-> 项目配置查找会从当前目录向祖先目录逐级搜索，因此在非仓库根目录启动时 `auth print-local-token` 和 provider auth 也能稳定工作。当 Codex 线程会话上下文可用时，适配器还会从 Codex 本地状态恢复项目 cwd，进一步避免初始化误判。
+> `auth print-local-token` 返回 adapter 级 token，不再负责选择项目。项目选择只来自请求里的 `model = "opencode_adapter/<project_key>/<real_model>"`；裸 `opencode-go/<model-id>` 已不再支持。
 
 ## 1. 配置分层
 
 | 配置 | 正确位置 | 作用 |
 |---|---|---|
 | `model_providers.opencode_go_adapter` | `%USERPROFILE%\.codex\config.toml` | 注册 Codex 可调用的模型服务 |
-| `.codex-opencode-adapter.env` | 当前项目根目录 | 保存项目级 API Key、端口、本地 token、SQLite 路径 |
-| Agent TOML | 项目 `.codex\agents\*.toml` | 定义 `oss_flash`、`oss_pro` 等子代理 |
+| `.codex-opencode-adapter.env` | 当前项目根目录 | 保存项目级 API Key、项目 ID、本地 token、SQLite 路径 |
+| Agent TOML | 项目 `.codex\agents\*.toml` | 定义 `oss_flash`、`oss_pro` 等子代理，并把 `model` 写成带项目路由的格式 |
 
 Codex 会扫描项目级 Agent TOML，但会忽略项目 `.codex/config.toml` 中的
 `model_providers`。配置放错时会出现：
@@ -82,6 +82,7 @@ codex-opencode-adapter init --api-key "<你的 OpenCode Go API Key>"
 - 更新 `%USERPROFILE%\.codex\config.toml` 中的 `model_providers.opencode_go_adapter`
 - 创建或覆盖当前项目的 `.codex-opencode-adapter.env`
 - 创建或覆盖默认 OSS agent 模板到 `.codex/agents/`
+- 把 agent `model` 写成 `opencode_adapter/<project_key>/opencode-go/<model-id>`
 
 其中本地 token 会按项目生成并落盘到 `.codex-opencode-adapter.env`，后续可手动修改。
 
@@ -268,14 +269,15 @@ stateless_tool_history_bypass_state_lookup
 如果 OpenCode Go 的模型列表有更新，不要先改代码，先看：
 
 ```powershell
-$headers = @{ Authorization = "Bearer codex-opencode-local" }
+$token = codex-opencode-adapter auth print-local-token
+$headers = @{ Authorization = "Bearer $token" }
 (Invoke-RestMethod http://127.0.0.1:4010/v1/models -Headers $headers).data.id
 ```
 
 处理顺序保持简单：
 
 1. 如果只是新增模型：
-   直接把 `.codex/agents/*.toml` 里的 `model` 改成新的 `opencode-go/<model-id>`。
+   直接把 `.codex/agents/*.toml` 里的 `model` 改成新的 `opencode_adapter/<project_key>/opencode-go/<model-id>`；更稳妥的做法是重新执行 `init` 生成模板。
 2. 如果旧模型下线或改名：
    先以 `/v1/models` 的真实返回为准，再改 agent 配置。
 3. 如果模型能力变了：
